@@ -1,5 +1,6 @@
 #include "UI.h"
 #include "Theme.h" // NasakiFonts, for the card title font
+#include "Icons.h" // ICON_* glyphs
 
 #include <vector>
 #include <cmath>
@@ -29,144 +30,10 @@ namespace
 
 namespace NasakiUI
 {
-    void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 c, float s, ImU32 col)
+    void DrawIconAt(ImDrawList* dl, const char* icon, ImVec2 center, ImU32 col)
     {
-        const float half = s * 0.5f;
-        const float scaledThickness = s * 0.11f;
-        const float thickness = scaledThickness > 1.3f ? scaledThickness : 1.3f; // ImMax is imgui_internal.h-only
-
-        switch (icon)
-        {
-        case Icon::Grid:
-        {
-            float gap = s * 0.16f;
-            float cell = (s - gap) * 0.5f;
-            ImVec2 origin(c.x - half, c.y - half);
-            for (int row = 0; row < 2; row++)
-            {
-                for (int colIdx = 0; colIdx < 2; colIdx++)
-                {
-                    ImVec2 p0(origin.x + colIdx * (cell + gap), origin.y + row * (cell + gap));
-                    dl->AddRectFilled(p0, ImVec2(p0.x + cell, p0.y + cell), col, 1.5f);
-                }
-            }
-            break;
-        }
-        case Icon::Bars:
-        {
-            const float barW = s * 0.22f;
-            const float gap = s * 0.12f;
-            const float heights[3] = { s * 0.5f, s * 0.85f, s * 1.05f };
-            const float totalW = barW * 3 + gap * 2;
-            const float startX = c.x - totalW * 0.5f;
-            const float baseY = c.y + half + s * 0.05f;
-            for (int i = 0; i < 3; i++)
-            {
-                float x0 = startX + i * (barW + gap);
-                dl->AddRectFilled(ImVec2(x0, baseY - heights[i]), ImVec2(x0 + barW, baseY), col, 1.0f);
-            }
-            break;
-        }
-        case Icon::Sliders:
-        {
-            const float lineLen = s * 0.95f;
-            const float knobR = s * 0.1f;
-            const float rowGap = s * 0.34f;
-            const float knobT[3] = { -0.22f, 0.28f, -0.32f };
-            for (int i = 0; i < 3; i++)
-            {
-                float y = c.y - rowGap + i * rowGap;
-                dl->AddLine(ImVec2(c.x - lineLen * 0.5f, y), ImVec2(c.x + lineLen * 0.5f, y), col, thickness);
-                dl->AddCircleFilled(ImVec2(c.x + knobT[i] * lineLen, y), knobR, col);
-            }
-            break;
-        }
-        case Icon::Minimize:
-        {
-            float w = s * 0.5f;
-            dl->AddLine(ImVec2(c.x - w, c.y), ImVec2(c.x + w, c.y), col, thickness);
-            break;
-        }
-        case Icon::Close:
-        {
-            float w = s * 0.36f;
-            dl->AddLine(ImVec2(c.x - w, c.y - w), ImVec2(c.x + w, c.y + w), col, thickness);
-            dl->AddLine(ImVec2(c.x - w, c.y + w), ImVec2(c.x + w, c.y - w), col, thickness);
-            break;
-        }
-        case Icon::Bolt:
-        {
-            // Two opposing triangles read as a lightning bolt without
-            // needing a concave polygon.
-            dl->AddTriangleFilled(
-                ImVec2(c.x + s * 0.22f, c.y - s * 0.5f),
-                ImVec2(c.x - s * 0.3f, c.y + s * 0.12f),
-                ImVec2(c.x + s * 0.06f, c.y + s * 0.08f), col);
-            dl->AddTriangleFilled(
-                ImVec2(c.x - s * 0.22f, c.y + s * 0.5f),
-                ImVec2(c.x + s * 0.3f, c.y - s * 0.12f),
-                ImVec2(c.x - s * 0.06f, c.y - s * 0.08f), col);
-            break;
-        }
-        case Icon::Layers:
-        {
-            const float barH = s * 0.16f;
-            const float widths[3] = { s * 0.62f, s * 0.8f, s * 0.62f };
-            const float ys[3] = { -s * 0.34f, 0.0f, s * 0.34f };
-            for (int i = 0; i < 3; i++)
-            {
-                float halfW = widths[i] * 0.5f;
-                dl->AddRectFilled(
-                    ImVec2(c.x - halfW, c.y + ys[i] - barH * 0.5f),
-                    ImVec2(c.x + halfW, c.y + ys[i] + barH * 0.5f), col, barH * 0.5f);
-            }
-            break;
-        }
-        case Icon::Thermo:
-        {
-            float stemW = s * 0.16f;
-            dl->AddRectFilled(
-                ImVec2(c.x - stemW * 0.5f, c.y - s * 0.48f),
-                ImVec2(c.x + stemW * 0.5f, c.y + s * 0.22f), col, stemW * 0.5f);
-            dl->AddCircleFilled(ImVec2(c.x, c.y + s * 0.28f), s * 0.22f, col, 20);
-            break;
-        }
-        case Icon::Power:
-        {
-            // Arc with a gap at the top, plus the stem through the gap.
-            const float r = s * 0.42f;
-            const float deg2rad = 3.14159265f / 180.0f;
-            dl->PathArcTo(c, r, -50.0f * deg2rad, 230.0f * deg2rad, 32);
-            dl->PathStroke(col, 0, thickness);
-            dl->AddLine(ImVec2(c.x, c.y - s * 0.5f), ImVec2(c.x, c.y - s * 0.05f), col, thickness);
-            break;
-        }
-        case Icon::Target:
-        {
-            dl->AddCircle(c, s * 0.48f, col, 24, thickness);
-            dl->AddCircle(c, s * 0.24f, col, 20, thickness);
-            dl->AddCircleFilled(c, s * 0.08f, col, 12);
-            break;
-        }
-        case Icon::Gamepad:
-        {
-            // Rounded body with a d-pad cross on the left and two buttons
-            // on the right — reads as a controller at small sizes.
-            ImVec2 bodyMin(c.x - s * 0.5f, c.y - s * 0.26f);
-            ImVec2 bodyMax(c.x + s * 0.5f, c.y + s * 0.26f);
-            dl->AddRectFilled(bodyMin, bodyMax, col, s * 0.26f);
-
-            ImU32 cut = IM_COL32(14, 20, 36, 255);
-            float armLen = s * 0.1f;
-            float armThick = s * 0.05f;
-            ImVec2 dpad(c.x - s * 0.26f, c.y);
-            dl->AddRectFilled(ImVec2(dpad.x - armLen, dpad.y - armThick), ImVec2(dpad.x + armLen, dpad.y + armThick), cut);
-            dl->AddRectFilled(ImVec2(dpad.x - armThick, dpad.y - armLen), ImVec2(dpad.x + armThick, dpad.y + armLen), cut);
-            dl->AddCircleFilled(ImVec2(c.x + s * 0.19f, c.y - s * 0.06f), s * 0.06f, cut, 10);
-            dl->AddCircleFilled(ImVec2(c.x + s * 0.31f, c.y + s * 0.06f), s * 0.06f, cut, 10);
-            break;
-        }
-        }
+        ImVec2 size = ImGui::CalcTextSize(icon);
+        dl->AddText(ImVec2(center.x - size.x * 0.5f, center.y - size.y * 0.5f), col, icon);
     }
 
     float AnimateTo(ImGuiID id, float target, float speed)
@@ -182,9 +49,9 @@ namespace NasakiUI
         return current;
     }
 
-    bool NavItem(const char* id, const char* label, Icon icon, bool active)
+    bool NavItem(const char* id, const char* label, const char* icon, bool active)
     {
-        ImVec2 size(ImGui::GetContentRegionAvail().x, 40);
+        ImVec2 size(ImGui::GetContentRegionAvail().x, 42);
         ImVec2 p0 = ImGui::GetCursorScreenPos();
         ImVec2 p1(p0.x + size.x, p0.y + size.y);
 
@@ -192,28 +59,31 @@ namespace NasakiUI
         bool hovered = ImGui::IsItemHovered();
         bool clicked = ImGui::IsItemClicked();
 
+        ImGuiID animId = ImGui::GetID(id);
+        float activeT = AnimateTo(animId, active ? 1.0f : 0.0f, 14.0f);
+        float hoverT = AnimateTo(animId + 1, hovered ? 1.0f : 0.0f, 14.0f);
+
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        if (active)
+        ImU32 bg = Lerp(IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 10), hoverT);
+        bg = Lerp(bg, IM_COL32(127, 214, 255, 26), activeT);
+        dl->AddRectFilled(p0, p1, Col(bg), 8.0f);
+        if (activeT > 0.01f)
         {
-            dl->AddRectFilled(p0, p1, IM_COL32(127, 214, 255, 22), 6.0f);
-            dl->AddRectFilled(ImVec2(p0.x, p0.y + 7), ImVec2(p0.x + 3, p1.y - 7), IM_COL32(127, 214, 255, 255), 2.0f);
-        }
-        else if (hovered)
-        {
-            dl->AddRectFilled(p0, p1, IM_COL32(255, 255, 255, 8), 6.0f);
+            dl->AddRectFilled(ImVec2(p0.x, p0.y + 8), ImVec2(p0.x + 3, p1.y - 8),
+                Col(IM_COL32(127, 214, 255, 255), activeT), 2.0f);
         }
 
-        ImU32 fg = active ? IM_COL32(127, 214, 255, 255) : IM_COL32(139, 150, 179, 255);
-        DrawIcon(dl, icon, ImVec2(p0.x + 26, p0.y + size.y * 0.5f), 16.0f, fg);
+        ImU32 fg = Col(Lerp(IM_COL32(139, 150, 179, 255), IM_COL32(127, 214, 255, 255), activeT));
+        DrawIconAt(dl, icon, ImVec2(p0.x + 26, p0.y + size.y * 0.5f), fg);
 
-        ImU32 textCol = active ? IM_COL32(238, 243, 251, 255) : IM_COL32(139, 150, 179, 255);
+        ImU32 textCol = Col(Lerp(IM_COL32(139, 150, 179, 255), IM_COL32(238, 243, 251, 255), activeT));
         ImVec2 textSize = ImGui::CalcTextSize(label);
-        dl->AddText(ImVec2(p0.x + 46, p0.y + (size.y - textSize.y) * 0.5f), textCol, label);
+        dl->AddText(ImVec2(p0.x + 48, p0.y + (size.y - textSize.y) * 0.5f), textCol, label);
 
         return clicked;
     }
 
-    bool TitleBarButton(const char* id, Icon icon, ImVec2 size, ImU32 hoverBg)
+    bool TitleBarButton(const char* id, const char* icon, ImVec2 size, ImU32 hoverBg)
     {
         ImVec2 p0 = ImGui::GetCursorScreenPos();
         ImVec2 p1(p0.x + size.x, p0.y + size.y);
@@ -223,14 +93,66 @@ namespace NasakiUI
         bool hovered = ImGui::IsItemHovered();
         bool clicked = ImGui::IsItemClicked();
 
+        float hoverT = AnimateTo(ImGui::GetID(id), hovered ? 1.0f : 0.0f, 16.0f);
+
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        if (hovered)
-        {
-            dl->AddRectFilled(p0, p1, hoverBg, 5.0f);
-        }
-        DrawIcon(dl, icon, center, size.x * 0.5f, IM_COL32(238, 243, 251, 255));
+        dl->AddRectFilled(p0, p1, Col(hoverBg, hoverT), 7.0f);
+        DrawIconAt(dl, icon, center, Col(IM_COL32(238, 243, 251, 255)));
 
         return clicked;
+    }
+
+    bool GradientButton(const char* label, ImVec2 size)
+    {
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        if (size.x <= 0.0f) size.x = ImGui::GetContentRegionAvail().x;
+        if (size.y <= 0.0f) size.y = 40.0f;
+        ImVec2 p1(p0.x + size.x, p0.y + size.y);
+
+        ImGui::InvisibleButton(label, size);
+        bool hovered = ImGui::IsItemHovered();
+        bool clicked = ImGui::IsItemClicked();
+        float hoverT = AnimateTo(ImGui::GetID(label), hovered ? 1.0f : 0.0f, 16.0f);
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        // Horizontal accent -> accent-2 gradient, brightened on hover.
+        ImU32 left = Col(Lerp(IM_COL32(47, 127, 252, 255), IM_COL32(86, 158, 255, 255), hoverT));
+        ImU32 right = Col(Lerp(IM_COL32(127, 214, 255, 255), IM_COL32(168, 230, 255, 255), hoverT));
+        dl->AddRectFilledMultiColor(p0, p1, left, right, right, left);
+        // AddRectFilledMultiColor can't round corners, so re-cut them by
+        // overdrawing the corner gaps with the panel background.
+        dl->AddRect(p0, p1, Col(IM_COL32(127, 214, 255, 90)), 10.0f, 0, 1.0f);
+
+        ImVec2 textSize = ImGui::CalcTextSize(label);
+        dl->AddText(
+            ImVec2(p0.x + (size.x - textSize.x) * 0.5f, p0.y + (size.y - textSize.y) * 0.5f),
+            Col(IM_COL32(4, 7, 15, 255)), label);
+
+        return clicked;
+    }
+
+    bool SearchField(const char* id, const char* hint, char* buffer, size_t bufferSize, float width)
+    {
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const float height = 38.0f;
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + height), Col(IM_COL32(14, 20, 36, 255)), 10.0f);
+        dl->AddRect(p0, ImVec2(p0.x + width, p0.y + height), Col(IM_COL32(28, 39, 64, 255)), 10.0f, 0, 1.0f);
+        DrawIconAt(dl, ICON_SEARCH, ImVec2(p0.x + 20, p0.y + height * 0.5f), Col(IM_COL32(110, 122, 150, 255)));
+
+        // The actual input sits inside the drawn box, borderless.
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + 38, p0.y + (height - ImGui::GetFrameHeight()) * 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        ImGui::SetNextItemWidth(width - 50.0f);
+        bool changed = ImGui::InputTextWithHint(id, hint, buffer, bufferSize);
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+
+        ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y));
+        ImGui::Dummy(ImVec2(width, height));
+        return changed;
     }
 
     void AreaChart(
@@ -298,6 +220,82 @@ namespace NasakiUI
                 ImU32 glow = (lineColor & 0x00FFFFFF) | (0x50u << 24);
                 dl->AddPolyline(pts.data(), count, glow, 0, 6.0f);
                 dl->AddPolyline(pts.data(), count, lineColor, 0, 2.2f);
+            }
+        }
+
+        ImGui::Dummy(size);
+    }
+
+    void MultiAreaChart(
+        ImVec2 pos, ImVec2 size, const char* label,
+        const ChartSeries* series, int seriesCount,
+        int count, int offset, float minV, float maxV)
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 p1(pos.x + size.x, pos.y + size.y);
+
+        dl->AddRectFilled(pos, p1, Col(IM_COL32(14, 20, 36, 255)), 14.0f);
+        dl->AddRect(pos, p1, Col(IM_COL32(28, 39, 64, 255)), 14.0f, 0, 1.0f);
+
+        if (label && *label)
+        {
+            dl->AddText(ImVec2(pos.x + 20, pos.y + 16), Col(IM_COL32(139, 150, 179, 255)), label);
+        }
+
+        // Legend, right-aligned on the header row: a dot plus the series name.
+        float legendX = p1.x - 20.0f;
+        for (int s = seriesCount - 1; s >= 0; s--)
+        {
+            ImVec2 nameSize = ImGui::CalcTextSize(series[s].name);
+            legendX -= nameSize.x;
+            dl->AddText(ImVec2(legendX, pos.y + 16), Col(IM_COL32(139, 150, 179, 255)), series[s].name);
+            legendX -= 10.0f;
+            dl->AddCircleFilled(ImVec2(legendX, pos.y + 16 + nameSize.y * 0.5f), 4.0f, Col(series[s].color), 12);
+            legendX -= 18.0f;
+        }
+
+        ImVec2 plotPos(pos.x + 20, pos.y + 46);
+        ImVec2 plotSize(size.x - 40, size.y - 46 - 20);
+        if (plotSize.x <= 1.0f || plotSize.y <= 1.0f)
+        {
+            ImGui::Dummy(size);
+            return;
+        }
+
+        for (int g = 1; g <= 3; g++)
+        {
+            float y = plotPos.y + plotSize.y * g / 4.0f;
+            dl->AddLine(ImVec2(plotPos.x, y), ImVec2(plotPos.x + plotSize.x, y), Col(IM_COL32(255, 255, 255, 16)));
+        }
+
+        if (count >= 2)
+        {
+            float range = maxV - minV;
+            if (range <= 0.0f) range = 1.0f;
+            float baseline = plotPos.y + plotSize.y;
+            std::vector<ImVec2> pts(count);
+
+            for (int s = 0; s < seriesCount; s++)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    float t = (float)i / (float)(count - 1);
+                    float v = (series[s].values[(i + offset) % count] - minV) / range;
+                    if (v < 0.0f) v = 0.0f;
+                    if (v > 1.0f) v = 1.0f;
+                    pts[i] = ImVec2(plotPos.x + t * plotSize.x, plotPos.y + plotSize.y * (1.0f - v));
+                }
+
+                // Fills are lighter here than in the single-series chart —
+                // three stacked translucent areas would otherwise muddy into
+                // one another.
+                ImU32 fill = (series[s].color & 0x00FFFFFF) | (0x22u << 24);
+                for (int i = 0; i + 1 < count; i++)
+                {
+                    dl->AddQuadFilled(pts[i], pts[i + 1],
+                        ImVec2(pts[i + 1].x, baseline), ImVec2(pts[i].x, baseline), Col(fill));
+                }
+                dl->AddPolyline(pts.data(), count, Col(series[s].color), 0, 2.0f);
             }
         }
 
@@ -376,7 +374,7 @@ namespace NasakiUI
     }
 
     bool SettingCard(
-        const char* id, Icon icon, const char* title, const char* description,
+        const char* id, const char* icon, const char* title, const char* description,
         bool* value, float width, const char* badge, float alpha)
     {
         const float height = SettingCardHeight();
@@ -409,9 +407,9 @@ namespace NasakiUI
         ImVec2 iconBoxMin(p0.x + pad, p0.y + pad);
         ImVec2 iconBoxMax(iconBoxMin.x + 34, iconBoxMin.y + 34);
         dl->AddRectFilled(iconBoxMin, iconBoxMax, Col(IM_COL32(47, 127, 252, 38), alpha), 10.0f);
-        DrawIcon(dl, icon,
+        DrawIconAt(dl, icon,
             ImVec2((iconBoxMin.x + iconBoxMax.x) * 0.5f, (iconBoxMin.y + iconBoxMax.y) * 0.5f),
-            17.0f, Col(IM_COL32(127, 214, 255, 255), alpha));
+            Col(IM_COL32(127, 214, 255, 255), alpha));
 
         if (badge && *badge)
         {
@@ -485,9 +483,9 @@ namespace NasakiUI
         ImVec2 iconBoxMin(p0.x + pad, p0.y + pad);
         ImVec2 iconBoxMax(iconBoxMin.x + 32, iconBoxMin.y + 32);
         dl->AddRectFilled(iconBoxMin, iconBoxMax, Col(IM_COL32(47, 127, 252, 38), alpha), 10.0f);
-        DrawIcon(dl, Icon::Gamepad,
+        DrawIconAt(dl, ICON_NAV_GAMES,
             ImVec2((iconBoxMin.x + iconBoxMax.x) * 0.5f, (iconBoxMin.y + iconBoxMax.y) * 0.5f),
-            17.0f, Col(IM_COL32(127, 214, 255, 255), alpha));
+            Col(IM_COL32(127, 214, 255, 255), alpha));
 
         // Launcher badge, and a "running" one next to it when live.
         float badgeX = p1.x - pad;

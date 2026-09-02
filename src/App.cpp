@@ -1,6 +1,7 @@
 #include "App.h"
 #include "Theme.h"
 #include "UI.h"
+#include "Icons.h"
 #include "SystemInfo.h"
 #include "ProcessBoost.h"
 #include "Autostart.h"
@@ -541,12 +542,12 @@ void App::DrawTitleBar()
 
     float windowWidth = ImGui::GetWindowWidth();
     ImGui::SetCursorPos(ImVec2(windowWidth - 66, 4));
-    if (NasakiUI::TitleBarButton("min", NasakiUI::Icon::Minimize, ImVec2(28, 28), IM_COL32(255, 255, 255, 12)))
+    if (NasakiUI::TitleBarButton("min", ICON_MINIMIZE, ImVec2(28, 28), IM_COL32(255, 255, 255, 12)))
     {
         ShowWindow(m_hwnd, SW_MINIMIZE);
     }
     ImGui::SameLine(0, 4);
-    if (NasakiUI::TitleBarButton("close", NasakiUI::Icon::Close, ImVec2(28, 28), IM_COL32(255, 93, 93, 45)))
+    if (NasakiUI::TitleBarButton("close", ICON_CLOSE, ImVec2(28, 28), IM_COL32(255, 93, 93, 45)))
     {
         PostMessageW(m_hwnd, WM_CLOSE, 0, 0);
     }
@@ -563,42 +564,58 @@ void App::DrawSidebar()
     NasakiUI::SectionLabel("PREHĽAD");
     ImGui::Dummy(ImVec2(0, 4));
 
-    auto navItem = [this](const char* id, const char* label, NasakiUI::Icon icon, AppView view) {
+    auto navItem = [this](const char* id, const char* label, const char* icon, AppView view) {
         if (NasakiUI::NavItem(id, label, icon, m_view == view))
         {
             SetView(view);
         }
     };
 
-    navItem("nav_dash", "Prehľad", NasakiUI::Icon::Grid, AppView::Dashboard);
-    navItem("nav_perf", "Výkon", NasakiUI::Icon::Bars, AppView::Performance);
+    navItem("nav_dash", "Prehľad", ICON_NAV_HOME, AppView::Dashboard);
+    navItem("nav_perf", "Výkon", ICON_NAV_PERF, AppView::Performance);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("KNIŽNICA");
     ImGui::Dummy(ImVec2(0, 4));
 
-    navItem("nav_games", "Hry", NasakiUI::Icon::Gamepad, AppView::Games);
+    navItem("nav_games", "Hry", ICON_NAV_GAMES, AppView::Games);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("OPTIMALIZÁCIE");
     ImGui::Dummy(ImVec2(0, 4));
 
-    navItem("nav_settings", "Nastavenia", NasakiUI::Icon::Sliders, AppView::Settings);
+    navItem("nav_settings", "Nastavenia", ICON_NAV_SETTINGS, AppView::Settings);
 
     ImGui::PopStyleVar();
 
-    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 54);
-    ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, 4));
+    // Status chip pinned to the bottom, like the account chip in the
+    // reference app: avatar dot, license state, session state.
+    const float chipHeight = 64.0f;
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - chipHeight - 12.0f);
+    ImVec2 chipMin = ImGui::GetCursorScreenPos();
+    ImVec2 chipMax(chipMin.x + ImGui::GetContentRegionAvail().x, chipMin.y + chipHeight);
 
-    ImU32 dotColor = m_sessionActive ? NasakiColors::U32(NasakiColors::Ok()) : NasakiColors::U32(NasakiColors::InkDim());
-    ImVec2 dotPos = ImGui::GetCursorScreenPos();
-    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(dotPos.x + 20, dotPos.y + 10), 4.0f, dotColor);
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 32);
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
-    ImGui::TextWrapped("%s", m_sessionActive ? "Session aktívna" : "Bez aktívnej session");
-    ImGui::PopStyleColor();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(chipMin, chipMax, ImGui::GetColorU32(IM_COL32(14, 20, 36, 255)), 12.0f);
+    dl->AddRect(chipMin, chipMax, ImGui::GetColorU32(IM_COL32(28, 39, 64, 255)), 12.0f, 0, 1.0f);
 
+    ImVec2 avatarCenter(chipMin.x + 26, chipMin.y + chipHeight * 0.5f);
+    dl->AddCircleFilled(avatarCenter, 15.0f, ImGui::GetColorU32(IM_COL32(47, 127, 252, 55)), 24);
+    NasakiUI::DrawIconAt(dl, ICON_CHIP, avatarCenter, ImGui::GetColorU32(IM_COL32(127, 214, 255, 255)));
+
+    dl->AddText(ImVec2(chipMin.x + 50, chipMin.y + 15),
+        ImGui::GetColorU32(IM_COL32(238, 243, 251, 255)),
+        m_device.has_value() ? "Licencia aktívna" : "Bez licencie");
+
+    ImU32 dotColor = m_sessionActive
+        ? ImGui::GetColorU32(IM_COL32(107, 227, 163, 255))
+        : ImGui::GetColorU32(IM_COL32(110, 122, 150, 255));
+    dl->AddCircleFilled(ImVec2(chipMin.x + 55, chipMin.y + 41), 3.5f, dotColor, 10);
+    dl->AddText(ImVec2(chipMin.x + 65, chipMin.y + 34),
+        ImGui::GetColorU32(IM_COL32(110, 122, 150, 255)),
+        m_sessionActive ? "Session beží" : "Nečinné");
+
+    ImGui::Dummy(ImVec2(0, chipHeight));
     ImGui::EndChild();
 }
 
@@ -650,7 +667,7 @@ void App::DrawLicenseView()
 
     ImGui::Dummy(ImVec2(0, 10));
     ImGui::BeginDisabled(m_activating);
-    if (ImGui::Button(m_activating ? "Aktivujem..." : "Aktivovať", ImVec2(-1, 36)))
+    if (NasakiUI::GradientButton(m_activating ? "Aktivujem..." : "Aktivovať licenciu", ImVec2(-1, 42)))
     {
         SubmitLicenseKey();
     }
@@ -665,14 +682,6 @@ void App::DrawLicenseView()
     }
 
     ImGui::EndChild();
-}
-
-void App::DrawChartRow(const char* label, const float* values, ImU32 lineColor, float height)
-{
-    ImVec2 pos = ImGui::GetCursorScreenPos();
-    ImVec2 size(ImGui::GetContentRegionAvail().x, height);
-    ImU32 fill = (lineColor & 0x00FFFFFF) | (0x48u << 24);
-    NasakiUI::AreaChart(pos, size, label, values, m_historyCount, m_historyWritePos, 0.0f, 100.0f, lineColor, fill);
 }
 
 void App::DrawDashboardView()
@@ -757,56 +766,54 @@ void App::DrawDashboardView()
         ImGui::SetNextItemWidth(260);
         ImGui::InputText("##gamename", m_gameNameInput, sizeof(m_gameNameInput));
         ImGui::SameLine();
-        if (ImGui::Button("Spustiť session"))
+        if (NasakiUI::GradientButton("Spustiť session", ImVec2(180, 38)))
         {
             RequestStartSession();
         }
     }
     ImGui::EndChild();
 
-    ImGui::Dummy(ImVec2(0, 16));
-    ImGui::TextUnformatted("Záťaž (posledné ~2 min)");
-    ImGui::Dummy(ImVec2(0, 8));
-    if (m_historyCount > 1)
-    {
-        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 92);
-        ImGui::Dummy(ImVec2(0, 12));
-        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 92);
-        ImGui::Dummy(ImVec2(0, 12));
-        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 92);
-    }
-    else
+    // Charts live in the Výkon view — the dashboard is deliberately just
+    // "how is the machine right now" plus the session control.
+}
+
+void App::DrawLoadChart(float height)
+{
+    if (m_historyCount <= 1)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
         ImGui::TextUnformatted("Zbieram dáta...");
         ImGui::PopStyleColor();
+        return;
     }
+
+    const NasakiUI::ChartSeries series[] = {
+        { "CPU", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()) },
+        { "GPU", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()) },
+        { "RAM", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()) },
+    };
+    NasakiUI::MultiAreaChart(
+        ImGui::GetCursorScreenPos(),
+        ImVec2(ImGui::GetContentRegionAvail().x, height),
+        "Záťaž (posledné ~2 min)",
+        series, 3, m_historyCount, m_historyWritePos, 0.0f, 100.0f);
 }
 
 void App::DrawPerformanceView()
 {
-    DrawPageTitle("Výkon", nullptr);
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
-    ImGui::TextWrapped(
-        "Tento panel zobrazuje záťaž aktuálnej relácie. Plná história session-ov "
-        "(FPS, 1%% low, teploty) je na nasaki.eu/account/performance.php.");
-    ImGui::PopStyleColor();
+    DrawPageTitle("Výkon", "Záťaž tohto počítača v reálnom čase.");
+    ImGui::Dummy(ImVec2(0, 18));
+
+    DrawLoadChart(260.0f);
     ImGui::Dummy(ImVec2(0, 16));
 
-    if (m_historyCount > 1)
-    {
-        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 150);
-        ImGui::Dummy(ImVec2(0, 16));
-        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 150);
-        ImGui::Dummy(ImVec2(0, 16));
-        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 150);
-    }
-    else
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
-        ImGui::TextUnformatted("Zbieram dáta...");
-        ImGui::PopStyleColor();
-    }
+    ImGui::BeginChild("PerfNote", ImVec2(0, 92), true);
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+    ImGui::TextWrapped(
+        ICON_CHECK "  Plná história session-ov (FPS, 1%% low, teploty) je na "
+        "nasaki.eu/account/performance.php.");
+    ImGui::PopStyleColor();
+    ImGui::EndChild();
 }
 
 void App::DrawPageTitle(const char* title, const char* subtitle)
@@ -832,11 +839,14 @@ void App::DrawGamesView()
         RescanGameLibrary(); // first visit to this view kicks off the scan
     }
 
-    if (ImGui::Button("Znova prehľadať"))
+    NasakiUI::SearchField("##gamesearch", "Hľadať hru...", m_gameSearch, sizeof(m_gameSearch), 280.0f);
+    ImGui::SameLine(0, 12);
+    if (ImGui::Button(ICON_ROTATE "  Znova prehľadať", ImVec2(0, 38)))
     {
         RescanGameLibrary();
     }
-    ImGui::SameLine();
+    ImGui::SameLine(0, 12);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10);
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     if (m_gamesScanning)
     {
@@ -844,10 +854,33 @@ void App::DrawGamesView()
     }
     else
     {
-        ImGui::Text("Nájdených: %d", (int)m_games.size());
+        ImGui::Text("%d nájdených", (int)m_games.size());
     }
     ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 14));
+    ImGui::Dummy(ImVec2(0, 16));
+
+    // Filter by the search box (case-insensitive substring on the name).
+    std::string needle = m_gameSearch;
+    std::transform(needle.begin(), needle.end(), needle.begin(),
+        [](unsigned char c) { return (char)std::tolower(c); });
+
+    std::vector<size_t> visible;
+    visible.reserve(m_games.size());
+    for (size_t i = 0; i < m_games.size(); i++)
+    {
+        if (needle.empty())
+        {
+            visible.push_back(i);
+            continue;
+        }
+        std::string name = m_games[i].name;
+        std::transform(name.begin(), name.end(), name.begin(),
+            [](unsigned char c) { return (char)std::tolower(c); });
+        if (name.find(needle) != std::string::npos)
+        {
+            visible.push_back(i);
+        }
+    }
 
     if (m_games.empty())
     {
@@ -872,14 +905,15 @@ void App::DrawGamesView()
     const float cardHeight = NasakiUI::GameCardHeight();
 
     ImVec2 gridOrigin = ImGui::GetCursorPos();
-    for (size_t i = 0; i < m_games.size(); i++)
+    for (size_t slot = 0; slot < visible.size(); slot++)
     {
-        int row = (int)i / columns;
-        int col = (int)i % columns;
+        size_t i = visible[slot];
+        int row = (int)slot / columns;
+        int col = (int)slot % columns;
 
         // Staggered entrance: each card fades and rises slightly later than
         // the one before it.
-        float delay = (float)i * 0.045f;
+        float delay = (float)slot * 0.045f;
         float t = (m_viewFade - delay) / 0.35f;
         if (t < 0.0f) t = 0.0f;
         if (t > 1.0f) t = 1.0f;
@@ -911,7 +945,8 @@ void App::DrawGamesView()
     // doesn't grow the parent's content region — ImGui warns about exactly
     // that ("use SetCursorPos to extend boundaries... submit an item e.g.
     // Dummy() afterwards"), and the view would clip/not scroll.
-    int rows = ((int)m_games.size() + columns - 1) / columns;
+    int rows = ((int)visible.size() + columns - 1) / columns;
+    if (rows < 1) rows = 1;
     ImGui::SetCursorPos(gridOrigin);
     ImGui::Dummy(ImVec2(avail, rows * cardHeight + (rows - 1) * gap));
 }
@@ -932,7 +967,7 @@ void App::DrawSettingsView()
     struct CardDef
     {
         const char* id;
-        NasakiUI::Icon icon;
+        const char* icon;
         const char* title;
         const char* description;
         bool* value;
@@ -940,21 +975,21 @@ void App::DrawSettingsView()
     };
 
     CardDef cards[] = {
-        { "set_boost", NasakiUI::Icon::Bolt, "Prioritizácia hry",
+        { "set_boost", ICON_BOLT, "Prioritizácia hry",
           "Hra dostane počas session-y vyššiu prioritu CPU, aby ju Windows neodsúval kvôli procesom na pozadí.",
           &m_boostGamePriority, nullptr },
-        { "set_throttle", NasakiUI::Icon::Layers, "Tlmenie pozadia",
+        { "set_throttle", ICON_LAYERS, "Tlmenie pozadia",
           "Dočasne zníži prioritu známych aplikácií (prehliadač, Discord, Spotify). Po skončení session-y sa všetko vráti späť.",
           &m_throttleBackground, nullptr },
-        { "set_autostart_session", NasakiUI::Icon::Target, "Detekcia hry",
+        { "set_autostart_session", ICON_CROSSHAIRS, "Detekcia hry",
           "Sleduje spustené procesy a session spustí sám, keď zaznamená známu hru.",
           &m_autoStartSession, "Nové" },
-        { "set_overheat", NasakiUI::Icon::Thermo, "Prehrievanie",
+        { "set_overheat", ICON_THERMO, "Prehrievanie",
           m_isLaptop
             ? "Na notebooku upozorní, keď je CPU/GPU dlhší čas pod vysokou záťažou."
             : "Upozorní pri dlhodobo vysokej záťaži. Relevantné hlavne pre notebooky — tento počítač je desktop.",
           &m_overheatWarning, nullptr },
-        { "set_autostart_win", NasakiUI::Icon::Power, "Spustiť s Windows",
+        { "set_autostart_win", ICON_POWER, "Spustiť s Windows",
           "Nasaki sa spustí automaticky po prihlásení do Windows.",
           &m_startWithWindows, nullptr },
     };

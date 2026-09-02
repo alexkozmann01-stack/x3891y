@@ -6,6 +6,8 @@
 #include "Theme.h"
 #include "ManropeFont.h"
 #include "UnboundedFont.h"
+#include "IconFont.h"
+#include "Icons.h"
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -193,12 +195,30 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     {
         static const ImWchar ranges[] = { 0x0020, 0x017F, 0 }; // Basic Latin + Latin-1 + Latin Extended-A: covers Slovak/Czech diacritics
 
+        static const ImWchar iconRanges[] = { ICON_RANGE_MIN, ICON_RANGE_MAX, 0 };
+
+        // Merging the icon subset into each text font means an icon is just
+        // another glyph in a string — no separate PushFont dance, and icons
+        // line up on the text baseline automatically.
+        auto mergeIcons = [&](float size) {
+            ImFontConfig cfg;
+            cfg.MergeMode = true;
+            cfg.PixelSnapH = true;
+            cfg.GlyphMinAdvanceX = size; // keeps icons monospaced so labels align
+            cfg.GlyphOffset = ImVec2(0.0f, size * 0.06f); // nudge onto the text baseline
+            io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+                IconFont_compressed_data_base85, size, &cfg, iconRanges);
+        };
+
         ImFont* body = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
             ManropeFont_compressed_data_base85, 16.0f, nullptr, ranges);
+        mergeIcons(15.0f);
         ImFont* heading = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
             UnboundedFont_compressed_data_base85, 19.0f, nullptr, ranges);
+        mergeIcons(17.0f);
         ImFont* title = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
             UnboundedFont_compressed_data_base85, 32.0f, nullptr, ranges);
+        mergeIcons(28.0f);
 
         if (!body)
         {

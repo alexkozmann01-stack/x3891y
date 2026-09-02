@@ -2,44 +2,37 @@
 
 #include "imgui.h"
 
-// Small hand-drawn (ImDrawList) UI pieces used instead of Dear ImGui's bare
-// default widgets — plain ImGui::Button/PlotLines reads as programmer-art;
-// these exist to close some of the gap to the nasaki.eu website's actual
-// design. Everything here is deliberately simple geometry (rects, lines,
-// circles) rather than an icon font or image assets, so there's nothing
-// external to load or that can go missing.
+// Custom-drawn (ImDrawList) UI pieces used instead of Dear ImGui's bare
+// default widgets — plain ImGui::Button/PlotLines reads as programmer-art.
+// Icons are real Font Awesome glyphs (see src/Icons.h) merged into the text
+// fonts, so anywhere an `icon` parameter appears it's one of the ICON_*
+// UTF-8 string literals from that header.
 namespace NasakiUI
 {
-    enum class Icon
-    {
-        Grid,      // Prehľad
-        Bars,      // Výkon
-        Sliders,   // Nastavenia
-        Minimize,
-        Close,
-        Bolt,      // priority / performance
-        Layers,    // background apps
-        Thermo,    // heat / temperature
-        Power,     // start with Windows
-        Target,    // auto-detect
-        Gamepad,   // installed games
-    };
-
     // Frame-rate-independent ease toward `target`, with the current value
     // kept in ImGui's per-window state storage under `id` — the immediate
     // mode equivalent of an animated property. First frame starts at the
     // target so nothing flashes in from zero on appear.
     float AnimateTo(ImGuiID id, float target, float speed = 14.0f);
 
-    void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 center, float size, ImU32 color);
+    // Draws an icon glyph centered on `center` using the current font.
+    void DrawIconAt(ImDrawList* dl, const char* icon, ImVec2 center, ImU32 color);
 
     // A sidebar-style nav row: icon + label, rounded hover background, a
     // left accent bar when active. Returns true the frame it's clicked.
-    bool NavItem(const char* id, const char* label, Icon icon, bool active);
+    bool NavItem(const char* id, const char* label, const char* icon, bool active);
 
     // A window-corner-button style control (minimize/close in the custom
     // title bar): transparent until hovered, then a soft rounded highlight.
-    bool TitleBarButton(const char* id, Icon icon, ImVec2 size, ImU32 hoverBg);
+    bool TitleBarButton(const char* id, const char* icon, ImVec2 size, ImU32 hoverBg);
+
+    // A filled, accent-gradient primary button — the one loud call to
+    // action per screen (activate license, start session).
+    bool GradientButton(const char* label, ImVec2 size);
+
+    // A rounded search field with a leading magnifier icon. Returns true
+    // when the text changed.
+    bool SearchField(const char* id, const char* hint, char* buffer, size_t bufferSize, float width);
 
     // A bordered, filled card (like the site's .bench-chart panel) containing
     // a label and a line chart with a visible fill under the curve, a
@@ -53,6 +46,21 @@ namespace NasakiUI
         const float* values, int count, int offset,
         float minV, float maxV,
         ImU32 lineColor, ImU32 fillColor);
+
+    struct ChartSeries
+    {
+        const char* name;
+        const float* values;
+        ImU32 color;
+    };
+
+    // Several series in one card with a legend, instead of a stack of
+    // separate chart boxes — three bordered panels down the page read as
+    // clutter, one panel with three lines reads as a chart.
+    void MultiAreaChart(
+        ImVec2 pos, ImVec2 size, const char* label,
+        const ChartSeries* series, int seriesCount,
+        int count, int offset, float minV, float maxV);
 
     // Soft radial-ish glow (a few overlapping faint filled circles), behind
     // content, mirroring the site's `.bg-glow` background — call before
@@ -77,7 +85,7 @@ namespace NasakiUI
     // ImGui's cursor flow.
     float SettingCardHeight();
     bool SettingCard(
-        const char* id, Icon icon, const char* title, const char* description,
+        const char* id, const char* icon, const char* title, const char* description,
         bool* value, float width, const char* badge = nullptr, float alpha = 1.0f);
 
     // A game-library entry: name, launcher badge, install path, and a

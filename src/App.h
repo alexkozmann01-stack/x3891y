@@ -53,7 +53,7 @@ private:
     void SetView(AppView view); // switches view and restarts the fade-in
     void DrawPageTitle(const char* title, const char* subtitle);
     void DrawStatTile(const char* label, const std::string& value, float width);
-    void DrawChartRow(const char* label, const float* values, ImU32 lineColor, float height);
+    void DrawLoadChart(float height); // CPU/GPU/RAM in one card with a legend
 
     // ---- license / device lifecycle ----
     void SubmitLicenseKey();
@@ -117,6 +117,7 @@ private:
     std::optional<std::vector<InstalledGame>> m_pendingGames;
     bool m_gamesScanning = false;
     bool m_gamesScanned = false;
+    char m_gameSearch[64] = "";
     std::vector<unsigned long> m_runningGamePids; // parallel to m_games; 0 = not running
     float m_runningCheckTimer = 0.0f;
 
