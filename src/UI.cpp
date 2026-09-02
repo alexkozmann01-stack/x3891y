@@ -125,50 +125,70 @@ namespace NasakiUI
 
     void AreaChart(
         ImVec2 pos, ImVec2 size,
+        const char* label,
         const float* values, int count, int offset,
         float minV, float maxV,
         ImU32 lineColor, ImU32 fillColor)
     {
         ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 p1(pos.x + size.x, pos.y + size.y);
 
-        // Guide lines, same 3-line grid the site's SVG benchmark chart uses.
-        for (int g = 1; g <= 3; g++)
+        // Card background + border — same treatment as the site's
+        // .bench-chart panel — so the chart reads as one bounded, intentional
+        // element instead of text and a line floating in open space.
+        dl->AddRectFilled(pos, p1, IM_COL32(14, 20, 36, 255), 8.0f);
+        dl->AddRect(pos, p1, IM_COL32(28, 39, 64, 255), 8.0f, 0, 1.0f);
+
+        bool hasLabel = label && *label;
+        if (hasLabel)
         {
-            float y = pos.y + size.y * g / 4.0f;
-            dl->AddLine(ImVec2(pos.x, y), ImVec2(pos.x + size.x, y), IM_COL32(255, 255, 255, 10));
+            dl->AddText(ImVec2(pos.x + 14, pos.y + 10), IM_COL32(139, 150, 179, 255), label);
         }
 
-        if (count >= 2 && size.x > 1.0f && size.y > 1.0f)
+        float topPad = hasLabel ? 30.0f : 14.0f;
+        ImVec2 plotPos(pos.x + 14, pos.y + topPad);
+        ImVec2 plotSize(size.x - 28, size.y - topPad - 14.0f);
+
+        if (plotSize.x > 1.0f && plotSize.y > 1.0f)
         {
-            float range = maxV - minV;
-            if (range <= 0.0f) range = 1.0f;
-
-            std::vector<ImVec2> pts(count);
-            for (int i = 0; i < count; i++)
+            for (int g = 1; g <= 3; g++)
             {
-                float t = (float)i / (float)(count - 1);
-                float raw = values[(i + offset) % count];
-                float v = (raw - minV) / range;
-                if (v < 0.0f) v = 0.0f;
-                if (v > 1.0f) v = 1.0f;
-                pts[i] = ImVec2(pos.x + t * size.x, pos.y + size.y * (1.0f - v));
+                float y = plotPos.y + plotSize.y * g / 4.0f;
+                dl->AddLine(ImVec2(plotPos.x, y), ImVec2(plotPos.x + plotSize.x, y), IM_COL32(255, 255, 255, 18));
             }
 
-            // Fill: one convex trapezoid per segment (always convex even when
-            // the curve itself isn't, unlike a single AddConvexPolyFilled
-            // over the whole area-under-curve shape).
-            float baseline = pos.y + size.y;
-            for (int i = 0; i + 1 < count; i++)
+            if (count >= 2)
             {
-                ImVec2 p0 = pts[i], p1 = pts[i + 1];
-                dl->AddQuadFilled(p0, p1, ImVec2(p1.x, baseline), ImVec2(p0.x, baseline), fillColor);
-            }
+                float range = maxV - minV;
+                if (range <= 0.0f) range = 1.0f;
 
-            // Line: a wide faint pass underneath a crisp one on top, cheap
-            // stand-in for the site's drop-shadow glow on its accent lines.
-            ImU32 glow = (lineColor & 0x00FFFFFF) | (0x35u << 24);
-            dl->AddPolyline(pts.data(), count, glow, 0, 5.0f);
-            dl->AddPolyline(pts.data(), count, lineColor, 0, 2.0f);
+                std::vector<ImVec2> pts(count);
+                for (int i = 0; i < count; i++)
+                {
+                    float t = (float)i / (float)(count - 1);
+                    float raw = values[(i + offset) % count];
+                    float v = (raw - minV) / range;
+                    if (v < 0.0f) v = 0.0f;
+                    if (v > 1.0f) v = 1.0f;
+                    pts[i] = ImVec2(plotPos.x + t * plotSize.x, plotPos.y + plotSize.y * (1.0f - v));
+                }
+
+                // Fill: one convex trapezoid per segment (always convex even
+                // when the curve itself isn't, unlike a single
+                // AddConvexPolyFilled over the whole area-under-curve shape).
+                float baseline = plotPos.y + plotSize.y;
+                for (int i = 0; i + 1 < count; i++)
+                {
+                    ImVec2 a = pts[i], b = pts[i + 1];
+                    dl->AddQuadFilled(a, b, ImVec2(b.x, baseline), ImVec2(a.x, baseline), fillColor);
+                }
+
+                // Line: a wide faint pass underneath a crisp one on top, cheap
+                // stand-in for the site's drop-shadow glow on its accent lines.
+                ImU32 glow = (lineColor & 0x00FFFFFF) | (0x50u << 24);
+                dl->AddPolyline(pts.data(), count, glow, 0, 6.0f);
+                dl->AddPolyline(pts.data(), count, lineColor, 0, 2.2f);
+            }
         }
 
         ImGui::Dummy(size);

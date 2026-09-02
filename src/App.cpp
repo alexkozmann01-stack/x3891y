@@ -494,14 +494,10 @@ void App::DrawLicenseView()
 
 void App::DrawChartRow(const char* label, const float* values, ImU32 lineColor, float height)
 {
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
-    ImGui::TextUnformatted(label);
-    ImGui::PopStyleColor();
-
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImVec2 size(ImGui::GetContentRegionAvail().x, height);
-    ImU32 fill = (lineColor & 0x00FFFFFF) | (0x22u << 24);
-    NasakiUI::AreaChart(pos, size, values, m_historyCount, m_historyWritePos, 0.0f, 100.0f, lineColor, fill);
+    ImU32 fill = (lineColor & 0x00FFFFFF) | (0x48u << 24);
+    NasakiUI::AreaChart(pos, size, label, values, m_historyCount, m_historyWritePos, 0.0f, 100.0f, lineColor, fill);
 }
 
 void App::DrawDashboardView()
@@ -516,18 +512,22 @@ void App::DrawDashboardView()
     ImGui::PopStyleColor();
     ImGui::Dummy(ImVec2(0, 16));
 
-    float tileWidth = (ImGui::GetContentRegionAvail().x - 20) / 3.0f;
+    const float tileGap = 16.0f;
+    float tileWidth = (ImGui::GetContentRegionAvail().x - tileGap * 2) / 3.0f;
     DrawStatTile("CPU", FormatPercent(m_latestSnapshot.cpuPercent), tileWidth);
-    ImGui::SameLine();
+    ImGui::SameLine(0, tileGap);
     DrawStatTile("GPU", FormatPercent(m_latestSnapshot.gpuPercent), tileWidth);
-    ImGui::SameLine();
+    ImGui::SameLine(0, tileGap);
     DrawStatTile("RAM", FormatPercent(m_latestSnapshot.ramPercent), tileWidth);
 
     ImGui::Dummy(ImVec2(0, 16));
 
-    ImGui::BeginChild("SessionPanel", ImVec2(0, 110), true);
+    // Height must clear style.WindowPadding (20px top+bottom, applied to
+    // child windows same as regular ones) plus one text row and one input
+    // row, or content silently scrolls inside this small box.
+    ImGui::BeginChild("SessionPanel", ImVec2(0, 104), true);
     ImGui::TextUnformatted("Session");
-    ImGui::Dummy(ImVec2(0, 6));
+    ImGui::Dummy(ImVec2(0, 8));
     if (!m_sessionActive)
     {
         ImGui::SetNextItemWidth(260);
@@ -554,14 +554,14 @@ void App::DrawDashboardView()
 
     ImGui::Dummy(ImVec2(0, 16));
     ImGui::TextUnformatted("Záťaž (posledné ~2 min)");
-    ImGui::Dummy(ImVec2(0, 4));
+    ImGui::Dummy(ImVec2(0, 8));
     if (m_historyCount > 1)
     {
-        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 56);
-        ImGui::Dummy(ImVec2(0, 10));
-        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 56);
-        ImGui::Dummy(ImVec2(0, 10));
-        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 56);
+        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 92);
+        ImGui::Dummy(ImVec2(0, 12));
+        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 92);
+        ImGui::Dummy(ImVec2(0, 12));
+        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 92);
     }
     else
     {
@@ -587,11 +587,11 @@ void App::DrawPerformanceView()
 
     if (m_historyCount > 1)
     {
-        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 100);
-        ImGui::Dummy(ImVec2(0, 14));
-        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 100);
-        ImGui::Dummy(ImVec2(0, 14));
-        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 100);
+        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 150);
+        ImGui::Dummy(ImVec2(0, 16));
+        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 150);
+        ImGui::Dummy(ImVec2(0, 16));
+        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 150);
     }
     else
     {

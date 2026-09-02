@@ -29,14 +29,15 @@ namespace NasakiUI
     // title bar): transparent until hovered, then a soft rounded highlight.
     bool TitleBarButton(const char* id, Icon icon, ImVec2 size, ImU32 hoverBg);
 
-    // Line chart with a soft fill under the curve and a two-pass glow on the
-    // line itself, plus 3 faint horizontal guide lines — the same visual
-    // language as the benchmark chart on the landing page, instead of
-    // ImGui::PlotLines' bare single-pixel line.
+    // A bordered, filled card (like the site's .bench-chart panel) containing
+    // a label and a line chart with a visible fill under the curve, a
+    // two-pass glow on the line, and 3 guide lines — instead of
+    // ImGui::PlotLines' bare single-pixel line floating with no boundary.
     // `values`/`count`/`offset` follow ImGui::PlotLines' own convention:
     // reads values[(i + offset) % count] for i in [0, count).
     void AreaChart(
         ImVec2 pos, ImVec2 size,
+        const char* label,
         const float* values, int count, int offset,
         float minV, float maxV,
         ImU32 lineColor, ImU32 fillColor);
