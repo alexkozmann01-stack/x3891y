@@ -53,11 +53,14 @@ private:
     void Unlink();
 
     // ---- session lifecycle ----
-    void StartSession();
+    void RequestStartSession();  // starts the pre-boost countdown
+    void CancelStartRequest();   // cancels a countdown in progress
+    void StartSession();         // called once the countdown completes
     void StopSession();
     void SampleTick(float deltaSeconds);
 
     HWND m_hwnd;
+    bool m_isLaptop = false;
 
     AppView m_view = AppView::License;
 
@@ -80,6 +83,16 @@ private:
     char m_gameNameInput[128] = "Nasaki Client";
     std::mutex m_sessionStartMutex;
     std::optional<std::optional<long long>> m_pendingSessionStartResult;
+
+    // There's no game-render hook to identify "the game" automatically (see
+    // README), so starting a session runs a short countdown first — giving
+    // the player a moment to switch to the game — before ProcessBoost reads
+    // whatever process is in the foreground.
+    enum class BoostPhase { Idle, CountingDown, Active };
+    BoostPhase m_boostPhase = BoostPhase::Idle;
+    float m_boostCountdown = 0.0f;
+    bool m_throttleBackground = true;
+    std::string m_boostStatus; // last outcome, shown in the session panel
 
     std::vector<TelemetrySample> m_sampleBuffer; // batched, flushed periodically (see SampleTick)
 

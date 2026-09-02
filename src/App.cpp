@@ -1,6 +1,8 @@
 #include "App.h"
 #include "Theme.h"
 #include "UI.h"
+#include "SystemInfo.h"
+#include "ProcessBoost.h"
 
 #include "imgui.h"
 
@@ -9,6 +11,7 @@
 #include <dxgi.h>
 #include <ctime>
 #include <cstdio>
+#include <cstring>
 #include <algorithm>
 
 #pragma comment(lib, "dxgi.lib")
@@ -109,6 +112,7 @@ namespace
 App::App(HWND hwnd) : m_hwnd(hwnd)
 {
     ApplyNasakiTheme();
+    m_isLaptop = SystemInfo::IsLaptop();
     m_device = LicenseStore::Load();
     if (m_device.has_value())
     {
@@ -158,6 +162,22 @@ void App::Unlink()
 // ---------------------------------------------------------------------------
 // Session lifecycle
 
+void App::RequestStartSession()
+{
+    if (!m_device.has_value() || m_sessionActive || m_boostPhase != BoostPhase::Idle) return;
+    m_boostPhase = BoostPhase::CountingDown;
+    m_boostCountdown = 3.0f;
+    m_boostStatus.clear();
+}
+
+void App::CancelStartRequest()
+{
+    if (m_boostPhase == BoostPhase::CountingDown)
+    {
+        m_boostPhase = BoostPhase::Idle;
+    }
+}
+
 void App::StartSession()
 {
     if (!m_device.has_value() || m_sessionActive || m_sessionStarting) return;
@@ -181,6 +201,10 @@ void App::StartSession()
 void App::StopSession()
 {
     if (!m_sessionActive || !m_device.has_value()) return;
+
+    ProcessBoost::End();
+    m_boostPhase = BoostPhase::Idle;
+    m_boostStatus.clear();
 
     SessionEndStats stats;
     if (m_sessionSampleCount > 0)
@@ -308,6 +332,33 @@ void App::Update(float deltaSeconds)
                 m_sessionId = *id;
                 m_sessionActive = true;
             }
+        }
+    }
+
+    if (m_boostPhase == BoostPhase::CountingDown)
+    {
+        m_boostCountdown -= deltaSeconds;
+        if (m_boostCountdown <= 0.0f)
+        {
+            ProcessBoost::Result boost = ProcessBoost::Begin(m_throttleBackground);
+            m_boostPhase = BoostPhase::Active;
+
+            if (boost.foregroundFound)
+            {
+                if (!boost.targetProcessName.empty())
+                {
+                    strncpy_s(m_gameNameInput, boost.targetProcessName.c_str(), _TRUNCATE);
+                }
+                m_boostStatus = boost.throttledCount > 0
+                    ? "Hra zvýhodnená, " + std::to_string(boost.throttledCount) + " apiek na pozadí utlmených."
+                    : "Hra zvýhodnená.";
+            }
+            else
+            {
+                m_boostStatus = "Nezistená hra v popredí — optimalizácie procesov sa nepoužili.";
+            }
+
+            StartSession();
         }
     }
 
@@ -510,6 +561,34 @@ void App::DrawDashboardView()
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextUnformatted("Živý prehľad výkonu tohto počítača.");
     ImGui::PopStyleColor();
+
+    // No real temperature sensor available (see SystemStats.h), so this is
+    // a load-based proxy: sustained high CPU/GPU on a laptop (heuristically
+    // detected — see SystemInfo.h) is a reasonable, honestly-framed signal
+    // that thermal throttling/overheating risk is elevated.
+    if (m_isLaptop && m_historyCount >= 10)
+    {
+        int window = std::min(m_historyCount, 60);
+        double sumCpu = 0.0, sumGpu = 0.0;
+        for (int i = 0; i < window; i++)
+        {
+            int idx = (m_historyWritePos - 1 - i + kHistoryLen) % kHistoryLen;
+            sumCpu += m_cpuHistory[idx];
+            sumGpu += m_gpuHistory[idx];
+        }
+        float avgCpu = (float)(sumCpu / window);
+        float avgGpu = (float)(sumGpu / window);
+        if (avgCpu > 85.0f || avgGpu > 85.0f)
+        {
+            ImGui::Dummy(ImVec2(0, 10));
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Danger());
+            ImGui::TextWrapped(
+                "Notebook je dlhší čas pod vysokou záťažou — skontroluj vetranie, "
+                "aby nedošlo k prehriatiu.");
+            ImGui::PopStyleColor();
+        }
+    }
+
     ImGui::Dummy(ImVec2(0, 16));
 
     const float tileGap = 16.0f;
@@ -523,31 +602,47 @@ void App::DrawDashboardView()
     ImGui::Dummy(ImVec2(0, 16));
 
     // Height must clear style.WindowPadding (20px top+bottom, applied to
-    // child windows same as regular ones) plus one text row and one input
-    // row, or content silently scrolls inside this small box.
-    ImGui::BeginChild("SessionPanel", ImVec2(0, 104), true);
+    // child windows same as regular ones) plus one text row, one input row,
+    // and (when active) a status line, or content silently scrolls inside
+    // this small box.
+    ImGui::BeginChild("SessionPanel", ImVec2(0, 118), true);
     ImGui::TextUnformatted("Session");
     ImGui::Dummy(ImVec2(0, 8));
-    if (!m_sessionActive)
+
+    if (m_boostPhase == BoostPhase::CountingDown)
     {
-        ImGui::SetNextItemWidth(260);
-        ImGui::InputText("##gamename", m_gameNameInput, sizeof(m_gameNameInput));
-        ImGui::SameLine();
-        ImGui::BeginDisabled(m_sessionStarting);
-        if (ImGui::Button(m_sessionStarting ? "Spúšťam..." : "Spustiť session"))
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent2());
+        ImGui::Text("Prepni sa do hry... spúšťam o %ds", (int)(m_boostCountdown + 0.999f));
+        ImGui::PopStyleColor();
+        if (ImGui::Button("Zrušiť"))
         {
-            StartSession();
+            CancelStartRequest();
         }
-        ImGui::EndDisabled();
     }
-    else
+    else if (m_sessionActive)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Ok());
         ImGui::Text("Aktívna: %s", m_gameNameInput);
         ImGui::PopStyleColor();
+        if (!m_boostStatus.empty())
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+            ImGui::TextWrapped("%s", m_boostStatus.c_str());
+            ImGui::PopStyleColor();
+        }
         if (ImGui::Button("Ukončiť session"))
         {
             StopSession();
+        }
+    }
+    else
+    {
+        ImGui::SetNextItemWidth(260);
+        ImGui::InputText("##gamename", m_gameNameInput, sizeof(m_gameNameInput));
+        ImGui::SameLine();
+        if (ImGui::Button("Spustiť session"))
+        {
+            RequestStartSession();
         }
     }
     ImGui::EndChild();
@@ -615,6 +710,18 @@ void App::DrawSettingsView()
         ImGui::Text("Licenčný kľúč: %s", m_device->licenseKey.c_str());
         ImGui::Text("Device ID: %lld", m_device->deviceId);
     }
+    ImGui::Text("Typ zariadenia: %s", m_isLaptop ? "Notebook" : "Desktop");
+
+    ImGui::Dummy(ImVec2(0, 16));
+    ImGui::TextUnformatted("Optimalizácie počas hrania");
+    ImGui::Dummy(ImVec2(0, 6));
+    ImGui::Checkbox("Tlmiť bežné aplikácie na pozadí (prehliadač, Discord, ...)", &m_throttleBackground);
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+    ImGui::TextWrapped(
+        "Hra vždy dostane vyššiu prioritu CPU počas session-y. Toto navyše dočasne "
+        "zníži prioritu známych aplikácií na pozadí — všetko sa vráti do pôvodného "
+        "stavu, keď session ukončíš.");
+    ImGui::PopStyleColor();
 
     ImGui::Dummy(ImVec2(0, 16));
     if (ImGui::Button("Odpojiť toto zariadenie"))

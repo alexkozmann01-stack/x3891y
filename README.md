@@ -4,6 +4,7 @@ Windows desktop application for Nasaki. Responsible for:
 
 - Measuring frame-time consistency / FPS / 1% lows during gameplay
 - Reading hardware sensors (CPU/GPU utilization, RAM; temperatures not yet — see below)
+- Prioritizing the game process and easing off common background apps while playing
 - Showing a live overlay during play
 - Reporting session + telemetry data back to the Nasaki backend (see [docs/API.md](docs/API.md))
 
@@ -37,9 +38,19 @@ is fully self-contained: the UI font is compiled straight into the binary
   its bundled WinRing0 driver). `SystemStats` deliberately omits them — see
   the comment in `src/SystemStats.h`.
 
-Everything else (CPU %, RAM %, GPU engine utilization via the OS-level PDH
-`GPU Engine` counter, license activation, session telemetry) is real and
-should work as built.
+Everything else is real and should work as built: CPU %, RAM %, GPU engine
+utilization via the OS-level PDH `GPU Engine` counter, license activation,
+session telemetry, and process prioritization (`src/ProcessBoost.h/.cpp`) —
+starting a session runs a 3-second countdown so the player can switch to the
+game (there's no render hook to detect it automatically), then boosts
+whatever process is in the foreground to `ABOVE_NORMAL_PRIORITY_CLASS` and,
+if enabled in Settings, lowers a small allowlist of common consumer
+background apps (browsers, Discord, Spotify, ...) to `BELOW_NORMAL`, exactly
+restoring every touched priority when the session ends. Laptop vs. desktop
+is detected via `GetSystemPowerStatus` (`src/SystemInfo.h`) — on a laptop,
+sustained high CPU/GPU load shows an overheating advisory on the dashboard
+(a load-based proxy, not a real temperature reading — see the temperature
+section above).
 
 ## Building
 

@@ -25,6 +25,8 @@ add_executable(NasakiClient WIN32
     src/ApiClient.cpp
     src/ApiWorker.cpp
     src/SystemStats.cpp
+    src/SystemInfo.cpp
+    src/ProcessBoost.cpp
     src/LicenseStore.cpp
 
     ${IMGUI_DIR}/imgui.cpp
