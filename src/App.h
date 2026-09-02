@@ -45,6 +45,7 @@ private:
     void DrawDashboardView();
     void DrawPerformanceView();
     void DrawSettingsView();
+    void DrawPageTitle(const char* title, const char* subtitle);
     void DrawStatTile(const char* label, const std::string& value, float width);
     void DrawChartRow(const char* label, const float* values, ImU32 lineColor, float height);
 
@@ -58,6 +59,9 @@ private:
     void StartSession();         // called once the countdown completes
     void StopSession();
     void SampleTick(float deltaSeconds);
+    // One place for the "what did the boost actually do" line shown in the
+    // session panel, shared by the known-game and countdown paths.
+    std::string BuildBoostStatus(const std::string& gameName, bool boosted, int throttledCount) const;
 
     HWND m_hwnd;
     bool m_isLaptop = false;
@@ -91,8 +95,15 @@ private:
     enum class BoostPhase { Idle, CountingDown, Active };
     BoostPhase m_boostPhase = BoostPhase::Idle;
     float m_boostCountdown = 0.0f;
-    bool m_throttleBackground = true;
     std::string m_boostStatus; // last outcome, shown in the session panel
+
+    // Settings (the toggle cards in the Nastavenia view).
+    bool m_boostGamePriority = true;
+    bool m_throttleBackground = true;
+    bool m_overheatWarning = true;
+    bool m_autoStartSession = false;
+    bool m_startWithWindows = false;
+    float m_autoDetectTimer = 0.0f; // throttles the auto-detect process scan
 
     std::vector<TelemetrySample> m_sampleBuffer; // batched, flushed periodically (see SampleTick)
 

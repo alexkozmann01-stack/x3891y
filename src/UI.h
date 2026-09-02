@@ -17,6 +17,11 @@ namespace NasakiUI
         Sliders,   // Nastavenia
         Minimize,
         Close,
+        Bolt,      // priority / performance
+        Layers,    // background apps
+        Thermo,    // heat / temperature
+        Power,     // start with Windows
+        Target,    // auto-detect
     };
 
     void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 center, float size, ImU32 color);
@@ -52,4 +57,23 @@ namespace NasakiUI
     // mutates *value, returns true the frame it's toggled) but doesn't look
     // like a stock ImGui checkbox square.
     bool Toggle(const char* label, bool* value);
+
+    // A small rounded pill (e.g. "Nové", "Notebook"), drawn at a screen
+    // position. Returns its width so callers can right-align a row of them.
+    float BadgeAt(ImDrawList* dl, ImVec2 pos, const char* text, ImU32 fg, ImU32 bg);
+
+    // A settings card: icon + title (+ optional badge), a wrapped
+    // description, and a toggle in the bottom-right corner. The whole card
+    // is the click target. Returns true the frame it's toggled.
+    // Occupies exactly (width x SettingCardHeight()) — position it yourself
+    // (App.cpp lays these out as an explicit grid) rather than relying on
+    // ImGui's cursor flow.
+    float SettingCardHeight();
+    bool SettingCard(
+        const char* id, Icon icon, const char* title, const char* description,
+        bool* value, float width, const char* badge = nullptr);
+
+    // Dim, small, letter-spaced-looking group label for sidebar sections
+    // ("Optimalizácie", "Nástroje").
+    void SectionLabel(const char* text);
 }

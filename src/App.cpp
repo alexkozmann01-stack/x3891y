@@ -3,6 +3,7 @@
 #include "UI.h"
 #include "SystemInfo.h"
 #include "ProcessBoost.h"
+#include "Autostart.h"
 
 #include "imgui.h"
 
@@ -113,6 +114,7 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 {
     ApplyNasakiTheme();
     m_isLaptop = SystemInfo::IsLaptop();
+    m_startWithWindows = Autostart::IsEnabled();
     m_device = LicenseStore::Load();
     if (m_device.has_value())
     {
@@ -162,6 +164,24 @@ void App::Unlink()
 // ---------------------------------------------------------------------------
 // Session lifecycle
 
+std::string App::BuildBoostStatus(const std::string& gameName, bool boosted, int throttledCount) const
+{
+    std::string throttled = std::to_string(throttledCount) + " apiek na pozadí utlmených.";
+    if (boosted && throttledCount > 0)
+    {
+        return gameName + " zvýhodnená, " + throttled;
+    }
+    if (boosted)
+    {
+        return gameName + " zvýhodnená.";
+    }
+    if (throttledCount > 0)
+    {
+        return throttled;
+    }
+    return "Bez zmien priorít (optimalizácie sú vypnuté v Nastaveniach).";
+}
+
 void App::RequestStartSession()
 {
     if (!m_device.has_value() || m_sessionActive || m_boostPhase != BoostPhase::Idle) return;
@@ -172,11 +192,12 @@ void App::RequestStartSession()
     std::optional<ProcessBoost::KnownGameMatch> known = ProcessBoost::FindRunningKnownGame();
     if (known.has_value())
     {
-        ProcessBoost::Result boost = ProcessBoost::BeginForPid(known->pid, m_throttleBackground);
+        // pid 0 when the boost toggle is off: nothing gets prioritized, but
+        // the background throttle (a separate toggle) still applies.
+        ProcessBoost::Result boost = ProcessBoost::BeginForPid(
+            m_boostGamePriority ? known->pid : 0, m_throttleBackground);
         strncpy_s(m_gameNameInput, known->displayName.c_str(), _TRUNCATE);
-        m_boostStatus = boost.throttledCount > 0
-            ? known->displayName + " zvýhodnená, " + std::to_string(boost.throttledCount) + " apiek na pozadí utlmených."
-            : known->displayName + " zvýhodnená.";
+        m_boostStatus = BuildBoostStatus(known->displayName, boost.foregroundFound, boost.throttledCount);
         m_boostPhase = BoostPhase::Active;
         StartSession();
         return;
@@ -359,25 +380,36 @@ void App::Update(float deltaSeconds)
         m_boostCountdown -= deltaSeconds;
         if (m_boostCountdown <= 0.0f)
         {
-            ProcessBoost::Result boost = ProcessBoost::Begin(m_throttleBackground);
+            // BeginForPid(0, ...) when the priority toggle is off: skips the
+            // target boost, still applies the background throttle.
+            ProcessBoost::Result boost = m_boostGamePriority
+                ? ProcessBoost::Begin(m_throttleBackground)
+                : ProcessBoost::BeginForPid(0, m_throttleBackground);
             m_boostPhase = BoostPhase::Active;
 
-            if (boost.foregroundFound)
+            if (boost.foregroundFound && !boost.targetProcessName.empty())
             {
-                if (!boost.targetProcessName.empty())
-                {
-                    strncpy_s(m_gameNameInput, boost.targetProcessName.c_str(), _TRUNCATE);
-                }
-                m_boostStatus = boost.throttledCount > 0
-                    ? "Hra zvýhodnená, " + std::to_string(boost.throttledCount) + " apiek na pozadí utlmených."
-                    : "Hra zvýhodnená.";
+                strncpy_s(m_gameNameInput, boost.targetProcessName.c_str(), _TRUNCATE);
             }
-            else
-            {
-                m_boostStatus = "Nezistená hra v popredí — optimalizácie procesov sa nepoužili.";
-            }
+            m_boostStatus = BuildBoostStatus("Hra", boost.foregroundFound, boost.throttledCount);
 
             StartSession();
+        }
+    }
+
+    // Auto-start: poll for a known game every few seconds while idle, so a
+    // session begins on its own when the player launches something.
+    if (m_autoStartSession && m_device.has_value() &&
+        !m_sessionActive && m_boostPhase == BoostPhase::Idle)
+    {
+        m_autoDetectTimer += deltaSeconds;
+        if (m_autoDetectTimer >= 5.0f)
+        {
+            m_autoDetectTimer = 0.0f;
+            if (ProcessBoost::FindRunningKnownGame().has_value())
+            {
+                RequestStartSession(); // re-runs the scan and takes the fast path
+            }
         }
     }
 
@@ -436,12 +468,16 @@ void App::DrawTitleBar()
 
     ImGui::SetCursorPos(ImVec2(16, 7));
     ImGui::PushFont(NasakiFonts::Heading());
-    ImGui::SetWindowFontScale(0.72f); // Heading is loaded at 24px; the wordmark here wants ~17px
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent2());
     ImGui::TextUnformatted("NASAKI");
     ImGui::PopStyleColor();
-    ImGui::SetWindowFontScale(1.0f);
     ImGui::PopFont();
+
+    ImGui::SameLine(0, 10);
+    NasakiUI::BadgeAt(
+        ImGui::GetWindowDrawList(),
+        ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + 2),
+        "v0.1", NasakiColors::U32(NasakiColors::Accent2()), IM_COL32(47, 127, 252, 40));
 
     float windowWidth = ImGui::GetWindowWidth();
     ImGui::SetCursorPos(ImVec2(windowWidth - 66, 4));
@@ -461,9 +497,11 @@ void App::DrawTitleBar()
 
 void App::DrawSidebar()
 {
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 2));
-    ImGui::BeginChild("Sidebar", ImVec2(220, 0), true);
-    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 3));
+    ImGui::BeginChild("Sidebar", ImVec2(232, 0), true);
+
+    NasakiUI::SectionLabel("PREHĽAD");
+    ImGui::Dummy(ImVec2(0, 4));
 
     auto navItem = [this](const char* id, const char* label, NasakiUI::Icon icon, AppView view) {
         if (NasakiUI::NavItem(id, label, icon, m_view == view))
@@ -474,6 +512,11 @@ void App::DrawSidebar()
 
     navItem("nav_dash", "Prehľad", NasakiUI::Icon::Grid, AppView::Dashboard);
     navItem("nav_perf", "Výkon", NasakiUI::Icon::Bars, AppView::Performance);
+
+    ImGui::Dummy(ImVec2(0, 14));
+    NasakiUI::SectionLabel("OPTIMALIZÁCIE");
+    ImGui::Dummy(ImVec2(0, 4));
+
     navItem("nav_settings", "Nastavenia", NasakiUI::Icon::Sliders, AppView::Settings);
 
     ImGui::PopStyleVar();
@@ -496,20 +539,18 @@ void App::DrawSidebar()
 void App::DrawStatTile(const char* label, const std::string& value, float width)
 {
     ImVec2 p0 = ImGui::GetCursorScreenPos();
-    ImVec2 size(width, 84);
+    ImVec2 size(width, 110);
     ImVec2 p1(p0.x + size.x, p0.y + size.y);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p0, p1, NasakiColors::U32(NasakiColors::BgPanel2()), 8.0f);
-    dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Border), 8.0f);
-    // Thin accent line along the top edge, like the site's card-header rule.
-    dl->AddLine(ImVec2(p0.x + 8, p0.y + 1), ImVec2(p1.x - 8, p0.y + 1), NasakiColors::U32(NasakiColors::Accent()), 2.0f);
+    dl->AddRectFilled(p0, p1, NasakiColors::U32(NasakiColors::BgPanel2()), 14.0f);
+    dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Border), 14.0f);
 
-    ImGui::PushFont(NasakiFonts::Heading());
-    dl->AddText(ImVec2(p0.x + 16, p0.y + 18), NasakiColors::U32(NasakiColors::Accent2()), value.c_str());
+    dl->AddText(ImVec2(p0.x + 22, p0.y + 22), NasakiColors::U32(NasakiColors::InkDim()), label);
+
+    ImGui::PushFont(NasakiFonts::Title());
+    dl->AddText(ImVec2(p0.x + 22, p0.y + 48), NasakiColors::U32(NasakiColors::Accent2()), value.c_str());
     ImGui::PopFont();
-
-    dl->AddText(ImVec2(p0.x + 16, p0.y + 56), NasakiColors::U32(NasakiColors::InkDim()), label);
 
     ImGui::Dummy(size);
 }
@@ -530,9 +571,7 @@ void App::DrawLicenseView()
     ImGui::BeginChild("LicenseCard", cardSize, true);
 
     ImGui::PushFont(NasakiFonts::Heading());
-    ImGui::SetWindowFontScale(0.8f); // 24px loaded -> ~19px here
     ImGui::TextUnformatted("Aktivovať licenciu");
-    ImGui::SetWindowFontScale(1.0f);
     ImGui::PopFont();
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextWrapped("Zadaj licenčný kľúč z tvojho účtu na nasaki.eu.");
@@ -572,20 +611,13 @@ void App::DrawChartRow(const char* label, const float* values, ImU32 lineColor, 
 
 void App::DrawDashboardView()
 {
-    ImGui::PushFont(NasakiFonts::Heading());
-    ImGui::SetWindowFontScale(0.9f); // 24px loaded -> ~22px here
-    ImGui::TextUnformatted("Vitaj späť");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopFont();
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
-    ImGui::TextUnformatted("Živý prehľad výkonu tohto počítača.");
-    ImGui::PopStyleColor();
+    DrawPageTitle("Prehľad", "Živý prehľad výkonu tohto počítača.");
 
     // No real temperature sensor available (see SystemStats.h), so this is
     // a load-based proxy: sustained high CPU/GPU on a laptop (heuristically
     // detected — see SystemInfo.h) is a reasonable, honestly-framed signal
     // that thermal throttling/overheating risk is elevated.
-    if (m_isLaptop && m_historyCount >= 10)
+    if (m_isLaptop && m_overheatWarning && m_historyCount >= 10)
     {
         int window = std::min(m_historyCount, 60);
         double sumCpu = 0.0, sumGpu = 0.0;
@@ -687,11 +719,7 @@ void App::DrawDashboardView()
 
 void App::DrawPerformanceView()
 {
-    ImGui::PushFont(NasakiFonts::Heading());
-    ImGui::SetWindowFontScale(0.9f);
-    ImGui::TextUnformatted("Výkon");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopFont();
+    DrawPageTitle("Výkon", nullptr);
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextWrapped(
         "Tento panel zobrazuje záťaž aktuálnej relácie. Plná história session-ov "
@@ -715,15 +743,100 @@ void App::DrawPerformanceView()
     }
 }
 
+void App::DrawPageTitle(const char* title, const char* subtitle)
+{
+    ImGui::PushFont(NasakiFonts::Title());
+    ImGui::TextUnformatted(title);
+    ImGui::PopFont();
+    if (subtitle && *subtitle)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::TextUnformatted(subtitle);
+        ImGui::PopStyleColor();
+    }
+}
+
 void App::DrawSettingsView()
 {
-    ImGui::PushFont(NasakiFonts::Heading());
-    ImGui::SetWindowFontScale(0.9f);
-    ImGui::TextUnformatted("Nastavenia");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopFont();
-    ImGui::Dummy(ImVec2(0, 16));
+    DrawPageTitle("Nastavenia", "Optimalizácie a správa tohto zariadenia.");
+    ImGui::Dummy(ImVec2(0, 20));
 
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::TextUnformatted("Optimalizácie");
+    ImGui::PopFont();
+    ImGui::Dummy(ImVec2(0, 10));
+
+    // Explicit grid rather than SameLine flow: SettingCard draws its text
+    // through ImGui's text API (for wrapping) and restores the cursor, which
+    // SameLine's previous-line bookkeeping wouldn't survive cleanly.
+    struct CardDef
+    {
+        const char* id;
+        NasakiUI::Icon icon;
+        const char* title;
+        const char* description;
+        bool* value;
+        const char* badge;
+    };
+
+    CardDef cards[] = {
+        { "set_boost", NasakiUI::Icon::Bolt, "Prioritizácia hry",
+          "Hra dostane počas session-y vyššiu prioritu CPU, aby ju Windows neodsúval kvôli procesom na pozadí.",
+          &m_boostGamePriority, nullptr },
+        { "set_throttle", NasakiUI::Icon::Layers, "Tlmenie pozadia",
+          "Dočasne zníži prioritu známych aplikácií (prehliadač, Discord, Spotify). Po skončení session-y sa všetko vráti späť.",
+          &m_throttleBackground, nullptr },
+        { "set_autostart_session", NasakiUI::Icon::Target, "Detekcia hry",
+          "Sleduje spustené procesy a session spustí sám, keď zaznamená známu hru.",
+          &m_autoStartSession, "Nové" },
+        { "set_overheat", NasakiUI::Icon::Thermo, "Prehrievanie",
+          m_isLaptop
+            ? "Na notebooku upozorní, keď je CPU/GPU dlhší čas pod vysokou záťažou."
+            : "Upozorní pri dlhodobo vysokej záťaži. Relevantné hlavne pre notebooky — tento počítač je desktop.",
+          &m_overheatWarning, nullptr },
+        { "set_autostart_win", NasakiUI::Icon::Power, "Spustiť s Windows",
+          "Nasaki sa spustí automaticky po prihlásení do Windows.",
+          &m_startWithWindows, nullptr },
+    };
+
+    const float gap = 16.0f;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    int columns = (int)((avail + gap) / (340.0f + gap));
+    if (columns < 1) columns = 1;
+    if (columns > 3) columns = 3;
+    const float cardWidth = (avail - gap * (columns - 1)) / columns;
+    const float cardHeight = NasakiUI::SettingCardHeight();
+
+    ImVec2 gridOrigin = ImGui::GetCursorPos();
+    const int cardCount = (int)(sizeof(cards) / sizeof(cards[0]));
+    for (int i = 0; i < cardCount; i++)
+    {
+        int row = i / columns;
+        int col = i % columns;
+        ImGui::SetCursorPos(ImVec2(
+            gridOrigin.x + col * (cardWidth + gap),
+            gridOrigin.y + row * (cardHeight + gap)));
+
+        const CardDef& c = cards[i];
+        if (NasakiUI::SettingCard(c.id, c.icon, c.title, c.description, c.value, cardWidth, c.badge))
+        {
+            if (c.value == &m_startWithWindows)
+            {
+                Autostart::SetEnabled(m_startWithWindows);
+            }
+        }
+    }
+
+    int rows = (cardCount + columns - 1) / columns;
+    ImGui::SetCursorPos(ImVec2(gridOrigin.x, gridOrigin.y + rows * (cardHeight + gap)));
+
+    ImGui::Dummy(ImVec2(0, 12));
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::TextUnformatted("Zariadenie");
+    ImGui::PopFont();
+    ImGui::Dummy(ImVec2(0, 10));
+
+    ImGui::BeginChild("DevicePanel", ImVec2(0, 190), true);
     if (m_device.has_value())
     {
         ImGui::Text("Licenčný kľúč: %s", m_device->licenseKey.c_str());
@@ -731,18 +844,7 @@ void App::DrawSettingsView()
     }
     ImGui::Text("Typ zariadenia: %s", m_isLaptop ? "Notebook" : "Desktop");
 
-    ImGui::Dummy(ImVec2(0, 16));
-    ImGui::TextUnformatted("Optimalizácie počas hrania");
-    ImGui::Dummy(ImVec2(0, 6));
-    NasakiUI::Toggle("Tlmiť bežné aplikácie na pozadí (prehliadač, Discord, ...)", &m_throttleBackground);
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
-    ImGui::TextWrapped(
-        "Hra vždy dostane vyššiu prioritu CPU počas session-y. Toto navyše dočasne "
-        "zníži prioritu známych aplikácií na pozadí — všetko sa vráti do pôvodného "
-        "stavu, keď session ukončíš.");
-    ImGui::PopStyleColor();
-
-    ImGui::Dummy(ImVec2(0, 16));
+    ImGui::Dummy(ImVec2(0, 12));
     if (ImGui::Button("Odpojiť toto zariadenie"))
     {
         Unlink();
@@ -752,4 +854,5 @@ void App::DrawSettingsView()
         "Odstráni uloženú licenciu z tohto počítača. Budeš ju musieť znova aktivovať "
         "(licenciu si môžeš spravovať aj na nasaki.eu/account/devices.php).");
     ImGui::PopStyleColor();
+    ImGui::EndChild();
 }

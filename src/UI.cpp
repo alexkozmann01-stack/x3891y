@@ -1,4 +1,5 @@
 #include "UI.h"
+#include "Theme.h" // NasakiFonts, for the card title font
 
 #include <vector>
 
@@ -67,6 +68,60 @@ namespace NasakiUI
             float w = s * 0.36f;
             dl->AddLine(ImVec2(c.x - w, c.y - w), ImVec2(c.x + w, c.y + w), col, thickness);
             dl->AddLine(ImVec2(c.x - w, c.y + w), ImVec2(c.x + w, c.y - w), col, thickness);
+            break;
+        }
+        case Icon::Bolt:
+        {
+            // Two opposing triangles read as a lightning bolt without
+            // needing a concave polygon.
+            dl->AddTriangleFilled(
+                ImVec2(c.x + s * 0.22f, c.y - s * 0.5f),
+                ImVec2(c.x - s * 0.3f, c.y + s * 0.12f),
+                ImVec2(c.x + s * 0.06f, c.y + s * 0.08f), col);
+            dl->AddTriangleFilled(
+                ImVec2(c.x - s * 0.22f, c.y + s * 0.5f),
+                ImVec2(c.x + s * 0.3f, c.y - s * 0.12f),
+                ImVec2(c.x - s * 0.06f, c.y - s * 0.08f), col);
+            break;
+        }
+        case Icon::Layers:
+        {
+            const float barH = s * 0.16f;
+            const float widths[3] = { s * 0.62f, s * 0.8f, s * 0.62f };
+            const float ys[3] = { -s * 0.34f, 0.0f, s * 0.34f };
+            for (int i = 0; i < 3; i++)
+            {
+                float halfW = widths[i] * 0.5f;
+                dl->AddRectFilled(
+                    ImVec2(c.x - halfW, c.y + ys[i] - barH * 0.5f),
+                    ImVec2(c.x + halfW, c.y + ys[i] + barH * 0.5f), col, barH * 0.5f);
+            }
+            break;
+        }
+        case Icon::Thermo:
+        {
+            float stemW = s * 0.16f;
+            dl->AddRectFilled(
+                ImVec2(c.x - stemW * 0.5f, c.y - s * 0.48f),
+                ImVec2(c.x + stemW * 0.5f, c.y + s * 0.22f), col, stemW * 0.5f);
+            dl->AddCircleFilled(ImVec2(c.x, c.y + s * 0.28f), s * 0.22f, col, 20);
+            break;
+        }
+        case Icon::Power:
+        {
+            // Arc with a gap at the top, plus the stem through the gap.
+            const float r = s * 0.42f;
+            const float deg2rad = 3.14159265f / 180.0f;
+            dl->PathArcTo(c, r, -50.0f * deg2rad, 230.0f * deg2rad, 32);
+            dl->PathStroke(col, 0, thickness);
+            dl->AddLine(ImVec2(c.x, c.y - s * 0.5f), ImVec2(c.x, c.y - s * 0.05f), col, thickness);
+            break;
+        }
+        case Icon::Target:
+        {
+            dl->AddCircle(c, s * 0.48f, col, 24, thickness);
+            dl->AddCircle(c, s * 0.24f, col, 20, thickness);
+            dl->AddCircleFilled(c, s * 0.08f, col, 12);
             break;
         }
         }
@@ -237,6 +292,99 @@ namespace NasakiUI
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (size.y - ImGui::GetTextLineHeight()) * 0.5f);
         ImGui::TextUnformatted(label);
 
+        return changed;
+    }
+
+    float BadgeAt(ImDrawList* dl, ImVec2 pos, const char* text, ImU32 fg, ImU32 bg)
+    {
+        ImVec2 textSize = ImGui::CalcTextSize(text);
+        const float padX = 9.0f;
+        const float padY = 4.0f;
+        ImVec2 p1(pos.x + textSize.x + padX * 2, pos.y + textSize.y + padY * 2);
+        dl->AddRectFilled(pos, p1, bg, (p1.y - pos.y) * 0.5f);
+        dl->AddText(ImVec2(pos.x + padX, pos.y + padY), fg, text);
+        return p1.x - pos.x;
+    }
+
+    void SectionLabel(const char* text)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(110, 122, 150, 255));
+        ImGui::TextUnformatted(text);
+        ImGui::PopStyleColor();
+    }
+
+    float SettingCardHeight()
+    {
+        return 156.0f;
+    }
+
+    bool SettingCard(
+        const char* id, Icon icon, const char* title, const char* description,
+        bool* value, float width, const char* badge)
+    {
+        const float height = SettingCardHeight();
+        const float pad = 22.0f;
+
+        ImVec2 localStart = ImGui::GetCursorPos();
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImVec2 p1(p0.x + width, p0.y + height);
+
+        ImGui::InvisibleButton(id, ImVec2(width, height));
+        bool hovered = ImGui::IsItemHovered();
+        bool changed = ImGui::IsItemClicked();
+        if (changed)
+        {
+            *value = !*value;
+        }
+        ImVec2 afterCursor = ImGui::GetCursorPos();
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImU32 bg = hovered ? IM_COL32(19, 27, 47, 255) : IM_COL32(14, 20, 36, 255);
+        ImU32 border = *value ? IM_COL32(47, 127, 252, 130) : IM_COL32(28, 39, 64, 255);
+        dl->AddRectFilled(p0, p1, bg, 14.0f);
+        dl->AddRect(p0, p1, border, 14.0f, 0, 1.0f);
+
+        // Icon in a soft accent-tinted rounded square, like the reference app.
+        ImVec2 iconBoxMin(p0.x + pad, p0.y + pad);
+        ImVec2 iconBoxMax(iconBoxMin.x + 34, iconBoxMin.y + 34);
+        dl->AddRectFilled(iconBoxMin, iconBoxMax, IM_COL32(47, 127, 252, 38), 10.0f);
+        DrawIcon(dl, icon,
+            ImVec2((iconBoxMin.x + iconBoxMax.x) * 0.5f, (iconBoxMin.y + iconBoxMax.y) * 0.5f),
+            17.0f, IM_COL32(127, 214, 255, 255));
+
+        if (badge && *badge)
+        {
+            ImVec2 badgeSize = ImGui::CalcTextSize(badge);
+            float badgeW = badgeSize.x + 18.0f;
+            BadgeAt(dl, ImVec2(p1.x - pad - badgeW, p0.y + pad + 4),
+                badge, IM_COL32(107, 227, 163, 255), IM_COL32(107, 227, 163, 30));
+        }
+
+        // Title and description go through ImGui's text API (not
+        // ImDrawList::AddText) so wrapping works; the cursor is put back
+        // afterwards so the caller's layout isn't disturbed.
+        ImGui::SetCursorScreenPos(ImVec2(iconBoxMax.x + 12, p0.y + pad + 7));
+        ImGui::PushFont(NasakiFonts::Heading());
+        ImGui::TextUnformatted(title);
+        ImGui::PopFont();
+
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + pad + 46));
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(139, 150, 179, 255));
+        ImGui::PushTextWrapPos(localStart.x + width - pad);
+        ImGui::TextUnformatted(description);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+
+        // Toggle, bottom-right.
+        const ImVec2 tSize(42, 23);
+        ImVec2 t0(p1.x - pad - tSize.x, p1.y - pad - tSize.y);
+        ImVec2 t1(t0.x + tSize.x, t0.y + tSize.y);
+        float radius = tSize.y * 0.5f;
+        dl->AddRectFilled(t0, t1, *value ? IM_COL32(47, 127, 252, 255) : IM_COL32(30, 41, 66, 255), radius);
+        float knobX = *value ? (t1.x - radius) : (t0.x + radius);
+        dl->AddCircleFilled(ImVec2(knobX, (t0.y + t1.y) * 0.5f), radius - 3.0f, IM_COL32(238, 243, 251, 255), 20);
+
+        ImGui::SetCursorPos(afterCursor);
         return changed;
     }
 }

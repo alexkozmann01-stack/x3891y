@@ -196,13 +196,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         ImFont* body = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
             ManropeFont_compressed_data_base85, 16.0f, nullptr, ranges);
         ImFont* heading = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
-            UnboundedFont_compressed_data_base85, 24.0f, nullptr, ranges);
+            UnboundedFont_compressed_data_base85, 19.0f, nullptr, ranges);
+        ImFont* title = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+            UnboundedFont_compressed_data_base85, 32.0f, nullptr, ranges);
 
         if (!body)
         {
             body = io.Fonts->AddFontDefault();
         }
-        NasakiFonts::Set(body, heading ? heading : body);
+        NasakiFonts::Set(body, heading ? heading : body, title ? title : (heading ? heading : body));
     }
 
     App app(hwnd);

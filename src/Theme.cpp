@@ -87,23 +87,22 @@ void ApplyNasakiTheme()
     colors[ImGuiCol_DragDropTarget]        = kAccent2;
     colors[ImGuiCol_NavHighlight]          = kAccent2;
 
-    // The site favors small, tight radii (3-8px) over fully rounded controls.
-    style.WindowRounding    = 8.0f;
-    style.ChildRounding     = 8.0f;
-    style.FrameRounding     = 4.0f;
-    style.PopupRounding     = 6.0f;
-    style.ScrollbarRounding = 6.0f;
-    style.GrabRounding      = 4.0f;
-    style.TabRounding       = 4.0f;
+    style.WindowRounding    = 12.0f;
+    style.ChildRounding     = 14.0f;
+    style.FrameRounding     = 8.0f;
+    style.PopupRounding     = 10.0f;
+    style.ScrollbarRounding = 8.0f;
+    style.GrabRounding      = 8.0f;
+    style.TabRounding       = 8.0f;
 
     style.WindowBorderSize  = 1.0f;
     style.ChildBorderSize   = 1.0f;
     style.FrameBorderSize   = 1.0f;
     style.PopupBorderSize   = 1.0f;
 
-    style.WindowPadding     = ImVec2(20, 20);
-    style.FramePadding      = ImVec2(10, 8);
-    style.ItemSpacing       = ImVec2(10, 10);
+    style.WindowPadding     = ImVec2(24, 24);
+    style.FramePadding      = ImVec2(12, 9);
+    style.ItemSpacing       = ImVec2(12, 12);
     style.ItemInnerSpacing  = ImVec2(8, 6);
     style.IndentSpacing     = 18.0f;
     style.ScrollbarSize     = 12.0f;
@@ -130,13 +129,16 @@ namespace NasakiFonts
 {
     static ImFont* s_body = nullptr;
     static ImFont* s_heading = nullptr;
+    static ImFont* s_title = nullptr;
 
-    void Set(ImFont* body, ImFont* heading)
+    void Set(ImFont* body, ImFont* heading, ImFont* title)
     {
         s_body = body;
         s_heading = heading;
+        s_title = title;
     }
 
     ImFont* Body() { return s_body; }
     ImFont* Heading() { return s_heading; }
+    ImFont* Title() { return s_title; }
 }

@@ -31,7 +31,11 @@ namespace NasakiColors
 // hands the resulting ImFont* around to App.cpp/UI.cpp.
 namespace NasakiFonts
 {
-    void Set(ImFont* body, ImFont* heading);
-    ImFont* Body();
-    ImFont* Heading();
+    // Three baked sizes rather than one font scaled at draw time —
+    // ImGui rasterizes at the baked size, so scaling a 24px font up to a
+    // 32px page title just renders it blurry.
+    void Set(ImFont* body, ImFont* heading, ImFont* title);
+    ImFont* Body();     // Manrope Medium 16 — body copy
+    ImFont* Heading();  // Unbounded ExtraBold 19 — card/section titles
+    ImFont* Title();    // Unbounded ExtraBold 32 — page titles, stat numbers
 }

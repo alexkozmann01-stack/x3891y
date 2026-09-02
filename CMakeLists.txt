@@ -27,6 +27,7 @@ add_executable(NasakiClient WIN32
     src/SystemStats.cpp
     src/SystemInfo.cpp
     src/ProcessBoost.cpp
+    src/Autostart.cpp
     src/LicenseStore.cpp
 
     ${IMGUI_DIR}/imgui.cpp
@@ -52,6 +53,7 @@ target_link_libraries(NasakiClient PRIVATE
     winhttp.lib
     pdh.lib
     dwmapi.lib
+    advapi32.lib
 )
 
 target_compile_definitions(NasakiClient PRIVATE
