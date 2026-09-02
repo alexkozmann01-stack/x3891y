@@ -907,8 +907,13 @@ void App::DrawGamesView()
         }
     }
 
+    // Claim the grid's footprint with a real item. Moving the cursor alone
+    // doesn't grow the parent's content region — ImGui warns about exactly
+    // that ("use SetCursorPos to extend boundaries... submit an item e.g.
+    // Dummy() afterwards"), and the view would clip/not scroll.
     int rows = ((int)m_games.size() + columns - 1) / columns;
-    ImGui::SetCursorPos(ImVec2(gridOrigin.x, gridOrigin.y + rows * (cardHeight + gap)));
+    ImGui::SetCursorPos(gridOrigin);
+    ImGui::Dummy(ImVec2(avail, rows * cardHeight + (rows - 1) * gap));
 }
 
 void App::DrawSettingsView()
@@ -988,8 +993,11 @@ void App::DrawSettingsView()
         }
     }
 
+    // Same as the Hry grid: a real item, not just a cursor move, so the
+    // parent window's content region actually grows to fit the cards.
     int rows = (cardCount + columns - 1) / columns;
-    ImGui::SetCursorPos(ImVec2(gridOrigin.x, gridOrigin.y + rows * (cardHeight + gap)));
+    ImGui::SetCursorPos(gridOrigin);
+    ImGui::Dummy(ImVec2(avail, rows * cardHeight + (rows - 1) * gap));
 
     ImGui::Dummy(ImVec2(0, 12));
     ImGui::PushFont(NasakiFonts::Heading());
