@@ -1,5 +1,6 @@
 #include "App.h"
 #include "Theme.h"
+#include "UI.h"
 
 #include "imgui.h"
 
@@ -363,24 +364,26 @@ void App::DrawTitleBar()
 {
     ImGui::BeginChild("TitleBar", ImVec2(0, 36), false, ImGuiWindowFlags_NoScrollbar);
 
-    ImGui::SetCursorPos(ImVec2(16, 9));
+    ImGui::SetCursorPos(ImVec2(16, 7));
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::SetWindowFontScale(0.72f); // Heading is loaded at 24px; the wordmark here wants ~17px
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent2());
     ImGui::TextUnformatted("NASAKI");
     ImGui::PopStyleColor();
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopFont();
 
     float windowWidth = ImGui::GetWindowWidth();
-    ImGui::SetCursorPos(ImVec2(windowWidth - 70, 4));
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    if (ImGui::Button("_", ImVec2(28, 28)))
+    ImGui::SetCursorPos(ImVec2(windowWidth - 66, 4));
+    if (NasakiUI::TitleBarButton("min", NasakiUI::Icon::Minimize, ImVec2(28, 28), IM_COL32(255, 255, 255, 12)))
     {
         ShowWindow(m_hwnd, SW_MINIMIZE);
     }
     ImGui::SameLine(0, 4);
-    if (ImGui::Button("x", ImVec2(28, 28)))
+    if (NasakiUI::TitleBarButton("close", NasakiUI::Icon::Close, ImVec2(28, 28), IM_COL32(255, 93, 93, 45)))
     {
         PostMessageW(m_hwnd, WM_CLOSE, 0, 0);
     }
-    ImGui::PopStyleColor();
 
     ImGui::EndChild();
     ImGui::Separator();
@@ -388,23 +391,31 @@ void App::DrawTitleBar()
 
 void App::DrawSidebar()
 {
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 2));
     ImGui::BeginChild("Sidebar", ImVec2(220, 0), true);
-    ImGui::Dummy(ImVec2(0, 4));
+    ImGui::Dummy(ImVec2(0, 8));
 
-    auto navItem = [this](const char* label, AppView view) {
-        bool selected = (m_view == view);
-        if (ImGui::Selectable(label, selected, 0, ImVec2(0, 30)))
+    auto navItem = [this](const char* id, const char* label, NasakiUI::Icon icon, AppView view) {
+        if (NasakiUI::NavItem(id, label, icon, m_view == view))
         {
             m_view = view;
         }
     };
 
-    navItem("Prehľad", AppView::Dashboard);
-    navItem("Výkon", AppView::Performance);
-    navItem("Nastavenia", AppView::Settings);
+    navItem("nav_dash", "Prehľad", NasakiUI::Icon::Grid, AppView::Dashboard);
+    navItem("nav_perf", "Výkon", NasakiUI::Icon::Bars, AppView::Performance);
+    navItem("nav_settings", "Nastavenia", NasakiUI::Icon::Sliders, AppView::Settings);
 
-    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 60);
+    ImGui::PopStyleVar();
+
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 54);
     ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 4));
+
+    ImU32 dotColor = m_sessionActive ? NasakiColors::U32(NasakiColors::Ok()) : NasakiColors::U32(NasakiColors::InkDim());
+    ImVec2 dotPos = ImGui::GetCursorScreenPos();
+    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(dotPos.x + 20, dotPos.y + 10), 4.0f, dotColor);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 32);
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextWrapped("%s", m_sessionActive ? "Session aktívna" : "Bez aktívnej session");
     ImGui::PopStyleColor();
@@ -414,27 +425,45 @@ void App::DrawSidebar()
 
 void App::DrawStatTile(const char* label, const std::string& value, float width)
 {
-    ImGui::BeginChild(label, ImVec2(width, 80), true);
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent2());
-    ImGui::SetWindowFontScale(1.4f);
-    ImGui::TextUnformatted(value.c_str());
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopStyleColor();
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
-    ImGui::TextUnformatted(label);
-    ImGui::PopStyleColor();
-    ImGui::EndChild();
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImVec2 size(width, 84);
+    ImVec2 p1(p0.x + size.x, p0.y + size.y);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, p1, NasakiColors::U32(NasakiColors::BgPanel2()), 8.0f);
+    dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Border), 8.0f);
+    // Thin accent line along the top edge, like the site's card-header rule.
+    dl->AddLine(ImVec2(p0.x + 8, p0.y + 1), ImVec2(p1.x - 8, p0.y + 1), NasakiColors::U32(NasakiColors::Accent()), 2.0f);
+
+    ImGui::PushFont(NasakiFonts::Heading());
+    dl->AddText(ImVec2(p0.x + 16, p0.y + 18), NasakiColors::U32(NasakiColors::Accent2()), value.c_str());
+    ImGui::PopFont();
+
+    dl->AddText(ImVec2(p0.x + 16, p0.y + 56), NasakiColors::U32(NasakiColors::InkDim()), label);
+
+    ImGui::Dummy(size);
 }
 
 void App::DrawLicenseView()
 {
     ImVec2 avail = ImGui::GetContentRegionAvail();
     ImVec2 cardSize(380, 260);
-    ImGui::SetCursorPos(ImVec2((avail.x - cardSize.x) * 0.5f, (avail.y - cardSize.y) * 0.5f));
+    ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImVec2 cardCenter(
+        origin.x + (avail.x - cardSize.x) * 0.5f + cardSize.x * 0.5f,
+        origin.y + (avail.y - cardSize.y) * 0.5f + cardSize.y * 0.5f);
 
+    // Soft accent glow behind the card, echoing the site's .bg-glow.
+    NasakiUI::BackgroundGlow(ImGui::GetWindowDrawList(), cardCenter, 260.0f, IM_COL32(47, 127, 252, 40));
+
+    ImGui::SetCursorPos(ImVec2((avail.x - cardSize.x) * 0.5f, (avail.y - cardSize.y) * 0.5f));
     ImGui::BeginChild("LicenseCard", cardSize, true);
 
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::SetWindowFontScale(0.8f); // 24px loaded -> ~19px here
     ImGui::TextUnformatted("Aktivovať licenciu");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopFont();
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextWrapped("Zadaj licenčný kľúč z tvojho účtu na nasaki.eu.");
     ImGui::PopStyleColor();
@@ -463,9 +492,25 @@ void App::DrawLicenseView()
     ImGui::EndChild();
 }
 
+void App::DrawChartRow(const char* label, const float* values, ImU32 lineColor, float height)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+    ImGui::TextUnformatted(label);
+    ImGui::PopStyleColor();
+
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImVec2 size(ImGui::GetContentRegionAvail().x, height);
+    ImU32 fill = (lineColor & 0x00FFFFFF) | (0x22u << 24);
+    NasakiUI::AreaChart(pos, size, values, m_historyCount, m_historyWritePos, 0.0f, 100.0f, lineColor, fill);
+}
+
 void App::DrawDashboardView()
 {
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::SetWindowFontScale(0.9f); // 24px loaded -> ~22px here
     ImGui::TextUnformatted("Vitaj späť");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopFont();
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextUnformatted("Živý prehľad výkonu tohto počítača.");
     ImGui::PopStyleColor();
@@ -509,11 +554,14 @@ void App::DrawDashboardView()
 
     ImGui::Dummy(ImVec2(0, 16));
     ImGui::TextUnformatted("Záťaž (posledné ~2 min)");
+    ImGui::Dummy(ImVec2(0, 4));
     if (m_historyCount > 1)
     {
-        ImGui::PlotLines("CPU %", m_cpuHistory, m_historyCount, m_historyWritePos, nullptr, 0.0f, 100.0f, ImVec2(-1, 60));
-        ImGui::PlotLines("GPU %", m_gpuHistory, m_historyCount, m_historyWritePos, nullptr, 0.0f, 100.0f, ImVec2(-1, 60));
-        ImGui::PlotLines("RAM %", m_ramHistory, m_historyCount, m_historyWritePos, nullptr, 0.0f, 100.0f, ImVec2(-1, 60));
+        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 56);
+        ImGui::Dummy(ImVec2(0, 10));
+        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 56);
+        ImGui::Dummy(ImVec2(0, 10));
+        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 56);
     }
     else
     {
@@ -525,7 +573,11 @@ void App::DrawDashboardView()
 
 void App::DrawPerformanceView()
 {
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::SetWindowFontScale(0.9f);
     ImGui::TextUnformatted("Výkon");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopFont();
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextWrapped(
         "Tento panel zobrazuje záťaž aktuálnej relácie. Plná história session-ov "
@@ -535,14 +587,11 @@ void App::DrawPerformanceView()
 
     if (m_historyCount > 1)
     {
-        ImGui::TextUnformatted("CPU %");
-        ImGui::PlotLines("##cpu", m_cpuHistory, m_historyCount, m_historyWritePos, nullptr, 0.0f, 100.0f, ImVec2(-1, 100));
-        ImGui::Dummy(ImVec2(0, 10));
-        ImGui::TextUnformatted("GPU %");
-        ImGui::PlotLines("##gpu", m_gpuHistory, m_historyCount, m_historyWritePos, nullptr, 0.0f, 100.0f, ImVec2(-1, 100));
-        ImGui::Dummy(ImVec2(0, 10));
-        ImGui::TextUnformatted("RAM %");
-        ImGui::PlotLines("##ram", m_ramHistory, m_historyCount, m_historyWritePos, nullptr, 0.0f, 100.0f, ImVec2(-1, 100));
+        DrawChartRow("CPU %", m_cpuHistory, NasakiColors::U32(NasakiColors::Accent()), 100);
+        ImGui::Dummy(ImVec2(0, 14));
+        DrawChartRow("GPU %", m_gpuHistory, NasakiColors::U32(NasakiColors::Accent2()), 100);
+        ImGui::Dummy(ImVec2(0, 14));
+        DrawChartRow("RAM %", m_ramHistory, NasakiColors::U32(NasakiColors::Ok()), 100);
     }
     else
     {
@@ -554,7 +603,11 @@ void App::DrawPerformanceView()
 
 void App::DrawSettingsView()
 {
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::SetWindowFontScale(0.9f);
     ImGui::TextUnformatted("Nastavenia");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopFont();
     ImGui::Dummy(ImVec2(0, 16));
 
     if (m_device.has_value())

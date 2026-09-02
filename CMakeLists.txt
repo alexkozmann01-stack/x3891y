@@ -21,6 +21,7 @@ add_executable(NasakiClient WIN32
     src/main.cpp
     src/App.cpp
     src/Theme.cpp
+    src/UI.cpp
     src/ApiClient.cpp
     src/ApiWorker.cpp
     src/SystemStats.cpp
@@ -58,6 +59,6 @@ target_compile_definitions(NasakiClient PRIVATE
     WIN32_LEAN_AND_MEAN
 )
 
-# NasakiClient.exe is fully self-contained — the UI font is compiled in
-# (src/ManropeFont.h, generated from assets/fonts/Manrope.ttf), so nothing
-# needs to be copied next to the binary after building.
+# NasakiClient.exe is fully self-contained — both UI fonts are compiled in
+# (src/ManropeFont.h, src/UnboundedFont.h), so nothing needs to be copied
+# next to the binary after building.

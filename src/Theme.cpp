@@ -122,4 +122,21 @@ namespace NasakiColors
     ImVec4 InkDim()  { return kInkDim; }
     ImVec4 Line()    { return kLine; }
     ImVec4 BgPanel2(){ return kBgPanel2; }
+
+    ImU32 U32(const ImVec4& c) { return ImGui::ColorConvertFloat4ToU32(c); }
+}
+
+namespace NasakiFonts
+{
+    static ImFont* s_body = nullptr;
+    static ImFont* s_heading = nullptr;
+
+    void Set(ImFont* body, ImFont* heading)
+    {
+        s_body = body;
+        s_heading = heading;
+    }
+
+    ImFont* Body() { return s_body; }
+    ImFont* Heading() { return s_heading; }
 }

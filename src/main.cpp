@@ -3,7 +3,9 @@
 // intentionally boilerplate; App.cpp is where the actual Nasaki UI lives.
 
 #include "App.h"
+#include "Theme.h"
 #include "ManropeFont.h"
+#include "UnboundedFont.h"
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -182,17 +184,25 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    // Manrope, compiled straight into the binary (src/ManropeFont.h, generated
-    // from assets/fonts/Manrope.ttf via imgui's own misc/fonts/binary_to_
-    // compressed_c tool) — no external font file to ship or go missing.
+    // Both fonts are compiled straight into the binary (src/ManropeFont.h,
+    // src/UnboundedFont.h — generated from assets/fonts/*.ttf via imgui's
+    // own misc/fonts/binary_to_compressed_c tool), matching the two typefaces
+    // the website actually uses: Manrope for body copy, Unbounded for
+    // headings/the brand wordmark. No external font file to ship or go
+    // missing. The first font added becomes ImGui's default.
     {
         static const ImWchar ranges[] = { 0x0020, 0x017F, 0 }; // Basic Latin + Latin-1 + Latin Extended-A: covers Slovak/Czech diacritics
-        ImFont* font = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
-            ManropeFont_compressed_data_base85, 18.0f, nullptr, ranges);
-        if (!font)
+
+        ImFont* body = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+            ManropeFont_compressed_data_base85, 16.0f, nullptr, ranges);
+        ImFont* heading = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+            UnboundedFont_compressed_data_base85, 24.0f, nullptr, ranges);
+
+        if (!body)
         {
-            io.Fonts->AddFontDefault();
+            body = io.Fonts->AddFontDefault();
         }
+        NasakiFonts::Set(body, heading ? heading : body);
     }
 
     App app(hwnd);

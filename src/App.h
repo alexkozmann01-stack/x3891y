@@ -5,6 +5,8 @@
 #include <optional>
 #include <mutex>
 
+#include "imgui.h" // ImU32, used by DrawChartRow
+
 #include "ApiClient.h"
 #include "ApiWorker.h"
 #include "SystemStats.h"
@@ -44,6 +46,7 @@ private:
     void DrawPerformanceView();
     void DrawSettingsView();
     void DrawStatTile(const char* label, const std::string& value, float width);
+    void DrawChartRow(const char* label, const float* values, ImU32 lineColor, float height);
 
     // ---- license / device lifecycle ----
     void SubmitLicenseKey();
