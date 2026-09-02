@@ -12,6 +12,11 @@ struct InstalledGame
     std::string name;
     std::string source;      // "Steam" | "Epic" | "GOG"
     std::string installPath; // may be empty if the launcher didn't record one
+
+    // What to hand ShellExecute to start this game. For Steam/Epic that's
+    // the launcher's own protocol URI (so the launcher does the right thing
+    // — cloud saves, DRM, overlay); for GOG it's the recorded executable.
+    std::string launchCommand;
 };
 
 namespace GameLibrary
@@ -20,4 +25,8 @@ namespace GameLibrary
     // enough that App runs it on the worker thread rather than inline in a
     // frame. Sorted by name; duplicates across launchers are not merged.
     std::vector<InstalledGame> Scan();
+
+    // Starts the game via its launcher. Returns false if there's nothing
+    // recorded to launch or the shell refused it.
+    bool Launch(const InstalledGame& game);
 }

@@ -141,7 +141,12 @@ namespace
                 std::string path = installDir.empty()
                     ? ""
                     : WinStr::ToUtf8(lib) + "\\steamapps\\common\\" + installDir;
-                games.push_back({ name, "Steam", path });
+
+                // Launch through Steam itself rather than the bare exe, so
+                // its overlay/cloud saves/DRM all still apply.
+                std::string appId = VdfFindValue(manifest, "appid");
+                std::string launch = appId.empty() ? "" : "steam://rungameid/" + appId;
+                games.push_back({ name, "Steam", path, launch });
             } while (FindNextFileW(find, &findData));
             FindClose(find);
         }
@@ -178,7 +183,11 @@ namespace
                 {
                     continue;
                 }
-                games.push_back({ name, "Epic", j.value("InstallLocation", "") });
+                std::string appName = j.value("AppName", "");
+                std::string launch = appName.empty()
+                    ? ""
+                    : "com.epicgames.launcher://apps/" + appName + "?action=launch&silent=true";
+                games.push_back({ name, "Epic", j.value("InstallLocation", ""), launch });
             }
             catch (const nlohmann::json::parse_error&)
             {
@@ -207,7 +216,9 @@ namespace
             if (!name.empty())
             {
                 std::wstring path = RegReadString(HKEY_LOCAL_MACHINE, full.c_str(), L"path");
-                games.push_back({ WinStr::ToUtf8(name), "GOG", WinStr::ToUtf8(path) });
+                std::wstring exe = RegReadString(HKEY_LOCAL_MACHINE, full.c_str(), L"exe");
+                games.push_back({
+                    WinStr::ToUtf8(name), "GOG", WinStr::ToUtf8(path), WinStr::ToUtf8(exe) });
             }
             index++;
             nameLen = 256;
@@ -218,6 +229,19 @@ namespace
 
 namespace GameLibrary
 {
+    bool Launch(const InstalledGame& game)
+    {
+        if (game.launchCommand.empty())
+        {
+            return false;
+        }
+        std::wstring command = WinStr::ToWide(game.launchCommand);
+        // ShellExecute handles both the steam://ourl form and a plain .exe
+        // path; anything at or below 32 is one of its documented failures.
+        HINSTANCE result = ShellExecuteW(nullptr, L"open", command.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return (INT_PTR)result > 32;
+    }
+
     std::vector<InstalledGame> Scan()
     {
         std::vector<InstalledGame> games;

@@ -280,6 +280,35 @@ namespace ProcessBoost
         return BeginForPid(fgPid, throttleBackground);
     }
 
+    int TrimBackgroundMemory()
+    {
+        int trimmed = 0;
+        DWORD selfPid = GetCurrentProcessId();
+        ForEachProcess([&](const PROCESSENTRY32W& entry) {
+            if (entry.th32ProcessID == selfPid)
+            {
+                return;
+            }
+            if (!IsAllowlistedBackground(ToLowerCopy(entry.szExeFile)))
+            {
+                return;
+            }
+            HANDLE h = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
+            if (!h)
+            {
+                return;
+            }
+            // (SIZE_T)-1 for both limits is the documented way to ask
+            // Windows to trim a process's working set.
+            if (SetProcessWorkingSetSize(h, (SIZE_T)-1, (SIZE_T)-1))
+            {
+                trimmed++;
+            }
+            CloseHandle(h);
+        });
+        return trimmed;
+    }
+
     void End()
     {
         for (Adjusted& a : g_adjusted)

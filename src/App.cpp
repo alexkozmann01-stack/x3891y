@@ -5,6 +5,7 @@
 #include "SystemInfo.h"
 #include "ProcessBoost.h"
 #include "Autostart.h"
+#include "WinTweaks.h"
 
 #include "imgui.h"
 
@@ -116,6 +117,8 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
     ApplyNasakiTheme();
     m_isLaptop = SystemInfo::IsLaptop();
     m_startWithWindows = Autostart::IsEnabled();
+    m_gameDvrDisabled = WinTweaks::IsGameDvrDisabled();
+    m_gameModeEnabled = WinTweaks::IsGameModeEnabled();
     m_device = LicenseStore::Load();
     if (m_device.has_value())
     {
@@ -186,6 +189,30 @@ void App::RescanGameLibrary()
     });
 }
 
+void App::ApplySessionOptimizations()
+{
+    if (m_highPerformancePower)
+    {
+        WinTweaks::BeginHighPerformancePower();
+    }
+    if (m_highResolutionTimer)
+    {
+        WinTweaks::BeginHighResolutionTimer();
+    }
+    if (m_trimBackgroundMemory)
+    {
+        ProcessBoost::TrimBackgroundMemory();
+    }
+}
+
+void App::RevertSessionOptimizations()
+{
+    // Unconditional: a toggle switched off mid-session must not strand the
+    // machine on a power scheme or timer period we raised.
+    WinTweaks::EndHighPerformancePower();
+    WinTweaks::EndHighResolutionTimer();
+}
+
 std::string App::BuildBoostStatus(const std::string& gameName, bool boosted, int throttledCount) const
 {
     std::string throttled = std::to_string(throttledCount) + " apiek na pozadí utlmených.";
@@ -221,6 +248,7 @@ void App::RequestStartSession()
         strncpy_s(m_gameNameInput, known->displayName.c_str(), _TRUNCATE);
         m_boostStatus = BuildBoostStatus(known->displayName, boost.foregroundFound, boost.throttledCount);
         m_boostPhase = BoostPhase::Active;
+        ApplySessionOptimizations();
         StartSession();
         return;
     }
@@ -265,6 +293,7 @@ void App::StopSession()
     if (!m_sessionActive || !m_device.has_value()) return;
 
     ProcessBoost::End();
+    RevertSessionOptimizations();
     m_boostPhase = BoostPhase::Idle;
     m_boostStatus.clear();
 
@@ -415,6 +444,7 @@ void App::Update(float deltaSeconds)
             }
             m_boostStatus = BuildBoostStatus("Hra", boost.foregroundFound, boost.throttledCount);
 
+            ApplySessionOptimizations();
             StartSession();
         }
     }
@@ -857,6 +887,14 @@ void App::DrawGamesView()
         ImGui::Text("%d nájdených", (int)m_games.size());
     }
     ImGui::PopStyleColor();
+
+    if (!m_gamesLaunchNote.empty())
+    {
+        ImGui::Dummy(ImVec2(0, 10));
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent2());
+        ImGui::TextUnformatted(m_gamesLaunchNote.c_str());
+        ImGui::PopStyleColor();
+    }
     ImGui::Dummy(ImVec2(0, 16));
 
     // Filter by the search box (case-insensitive substring on the name).
@@ -926,9 +964,27 @@ void App::DrawGamesView()
         const InstalledGame& g = m_games[i];
         bool running = i < m_runningGamePids.size() && m_runningGamePids[i] != 0;
         std::string cardId = "game_" + std::to_string(i);
-        if (NasakiUI::GameCard(cardId.c_str(), g.name.c_str(), g.source.c_str(),
-                g.installPath.c_str(), running, cardWidth, t) &&
-            m_boostPhase == BoostPhase::Idle && !m_sessionActive)
+        NasakiUI::GameCardAction action = NasakiUI::GameCard(
+            cardId.c_str(), g.name.c_str(), g.source.c_str(), g.installPath.c_str(),
+            running, !g.launchCommand.empty(), cardWidth, t);
+
+        if (action == NasakiUI::GameCardAction::Launch)
+        {
+            if (GameLibrary::Launch(g))
+            {
+                // The process won't exist for a second or two while the
+                // launcher spins up, so let the running-state poll pick it
+                // up rather than trying to boost a pid that isn't there yet.
+                m_runningCheckTimer = 100.0f;
+                m_gamesLaunchNote = g.name + " sa spúšťa...";
+            }
+            else
+            {
+                m_gamesLaunchNote = "Nepodarilo sa spustiť " + g.name + ".";
+            }
+        }
+        else if (action == NasakiUI::GameCardAction::StartSession &&
+                 m_boostPhase == BoostPhase::Idle && !m_sessionActive)
         {
             // Start a session boosting exactly this game's process.
             ProcessBoost::Result boost = ProcessBoost::BeginForPid(
@@ -936,6 +992,7 @@ void App::DrawGamesView()
             strncpy_s(m_gameNameInput, g.name.c_str(), _TRUNCATE);
             m_boostStatus = BuildBoostStatus(g.name, boost.foregroundFound, boost.throttledCount);
             m_boostPhase = BoostPhase::Active;
+            ApplySessionOptimizations();
             StartSession();
             SetView(AppView::Dashboard);
         }
@@ -956,11 +1013,6 @@ void App::DrawSettingsView()
     DrawPageTitle("Nastavenia", "Optimalizácie a správa tohto zariadenia.");
     ImGui::Dummy(ImVec2(0, 20));
 
-    ImGui::PushFont(NasakiFonts::Heading());
-    ImGui::TextUnformatted("Optimalizácie");
-    ImGui::PopFont();
-    ImGui::Dummy(ImVec2(0, 10));
-
     // Explicit grid rather than SameLine flow: SettingCard draws its text
     // through ImGui's text API (for wrapping) and restores the cursor, which
     // SameLine's previous-line bookkeeping wouldn't survive cleanly.
@@ -974,16 +1026,38 @@ void App::DrawSettingsView()
         const char* badge;
     };
 
-    CardDef cards[] = {
+    // Applied when a session starts, reverted when it ends.
+    CardDef sessionCards[] = {
         { "set_boost", ICON_BOLT, "Prioritizácia hry",
           "Hra dostane počas session-y vyššiu prioritu CPU, aby ju Windows neodsúval kvôli procesom na pozadí.",
           &m_boostGamePriority, nullptr },
         { "set_throttle", ICON_LAYERS, "Tlmenie pozadia",
-          "Dočasne zníži prioritu známych aplikácií (prehliadač, Discord, Spotify). Po skončení session-y sa všetko vráti späť.",
+          "Dočasne zníži prioritu známych aplikácií (prehliadač, Discord, Spotify) a po session-e ju vráti späť.",
           &m_throttleBackground, nullptr },
+        { "set_power", ICON_POWER, "Výkonový režim",
+          m_isLaptop
+            ? "Prepne Windows na High performance. Na notebooku býva najväčší rozdiel — Balanced parkuje jadrá a drží nízke takty."
+            : "Prepne Windows na High performance počas hrania a po skončení vráti pôvodnú schému.",
+          &m_highPerformancePower, "Nové" },
+        { "set_timer", ICON_CHIP, "Presnejší časovač",
+          "Zvýši rozlíšenie systémového časovača na 1 ms — niektoré enginy na tom stavajú plynulosť snímkov.",
+          &m_highResolutionTimer, "Nové" },
+        { "set_trim", ICON_LAYERS, "Uvoľniť RAM",
+          "Pred štartom hry vráti systému nevyužitú pamäť aplikácií na pozadí.",
+          &m_trimBackgroundMemory, "Nové" },
+    };
+
+    // Persistent Windows settings and app behaviour.
+    CardDef systemCards[] = {
+        { "set_gamedvr", ICON_LAYERS, "Vypnúť Game DVR",
+          "Vypne nahrávanie Xbox Game Baru na pozadí, ktoré počas hrania ukrajuje výkon.",
+          &m_gameDvrDisabled, "Nové" },
+        { "set_gamemode", ICON_BOLT, "Windows Game Mode",
+          "Necháva Windows uprednostniť hru pred údržbou systému na pozadí.",
+          &m_gameModeEnabled, "Nové" },
         { "set_autostart_session", ICON_CROSSHAIRS, "Detekcia hry",
           "Sleduje spustené procesy a session spustí sám, keď zaznamená známu hru.",
-          &m_autoStartSession, "Nové" },
+          &m_autoStartSession, nullptr },
         { "set_overheat", ICON_THERMO, "Prehrievanie",
           m_isLaptop
             ? "Na notebooku upozorní, keď je CPU/GPU dlhší čas pod vysokou záťažou."
@@ -1002,37 +1076,57 @@ void App::DrawSettingsView()
     const float cardWidth = (avail - gap * (columns - 1)) / columns;
     const float cardHeight = NasakiUI::SettingCardHeight();
 
-    ImVec2 gridOrigin = ImGui::GetCursorPos();
-    const int cardCount = (int)(sizeof(cards) / sizeof(cards[0]));
-    for (int i = 0; i < cardCount; i++)
-    {
-        int row = i / columns;
-        int col = i % columns;
-
-        // Staggered fade + rise, same treatment as the Hry grid.
-        float t = (m_viewFade - (float)i * 0.045f) / 0.35f;
-        if (t < 0.0f) t = 0.0f;
-        if (t > 1.0f) t = 1.0f;
-
-        ImGui::SetCursorPos(ImVec2(
-            gridOrigin.x + col * (cardWidth + gap),
-            gridOrigin.y + row * (cardHeight + gap) + (1.0f - t) * 10.0f));
-
-        const CardDef& c = cards[i];
-        if (NasakiUI::SettingCard(c.id, c.icon, c.title, c.description, c.value, cardWidth, c.badge, t))
+    // Shared by both grids: lays cards out at explicit positions, applies
+    // the staggered entrance, and claims the footprint with a real item so
+    // the parent's content region grows (a bare cursor move wouldn't).
+    int stagger = 0;
+    auto drawGrid = [&](CardDef* cards, int count) {
+        ImVec2 gridOrigin = ImGui::GetCursorPos();
+        for (int i = 0; i < count; i++)
         {
-            if (c.value == &m_startWithWindows)
+            float t = (m_viewFade - (float)(stagger++) * 0.04f) / 0.35f;
+            if (t < 0.0f) t = 0.0f;
+            if (t > 1.0f) t = 1.0f;
+
+            ImGui::SetCursorPos(ImVec2(
+                gridOrigin.x + (i % columns) * (cardWidth + gap),
+                gridOrigin.y + (i / columns) * (cardHeight + gap) + (1.0f - t) * 10.0f));
+
+            const CardDef& c = cards[i];
+            if (NasakiUI::SettingCard(c.id, c.icon, c.title, c.description, c.value, cardWidth, c.badge, t))
             {
-                Autostart::SetEnabled(m_startWithWindows);
+                // The toggles backed by real system state write through the
+                // moment they're flipped.
+                if (c.value == &m_startWithWindows)      Autostart::SetEnabled(m_startWithWindows);
+                else if (c.value == &m_gameDvrDisabled)  WinTweaks::SetGameDvrDisabled(m_gameDvrDisabled);
+                else if (c.value == &m_gameModeEnabled)  WinTweaks::SetGameModeEnabled(m_gameModeEnabled);
+                else if (c.value == &m_highPerformancePower && !m_highPerformancePower)
+                {
+                    WinTweaks::EndHighPerformancePower(); // switched off mid-session
+                }
+                else if (c.value == &m_highResolutionTimer && !m_highResolutionTimer)
+                {
+                    WinTweaks::EndHighResolutionTimer();
+                }
             }
         }
-    }
+        int rows = (count + columns - 1) / columns;
+        ImGui::SetCursorPos(gridOrigin);
+        ImGui::Dummy(ImVec2(avail, rows * cardHeight + (rows - 1) * gap));
+    };
 
-    // Same as the Hry grid: a real item, not just a cursor move, so the
-    // parent window's content region actually grows to fit the cards.
-    int rows = (cardCount + columns - 1) / columns;
-    ImGui::SetCursorPos(gridOrigin);
-    ImGui::Dummy(ImVec2(avail, rows * cardHeight + (rows - 1) * gap));
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::TextUnformatted("Počas hrania");
+    ImGui::PopFont();
+    ImGui::Dummy(ImVec2(0, 10));
+    drawGrid(sessionCards, (int)(sizeof(sessionCards) / sizeof(sessionCards[0])));
+
+    ImGui::Dummy(ImVec2(0, 22));
+    ImGui::PushFont(NasakiFonts::Heading());
+    ImGui::TextUnformatted("Systém");
+    ImGui::PopFont();
+    ImGui::Dummy(ImVec2(0, 10));
+    drawGrid(systemCards, (int)(sizeof(systemCards) / sizeof(systemCards[0])));
 
     ImGui::Dummy(ImVec2(0, 12));
     ImGui::PushFont(NasakiFonts::Heading());

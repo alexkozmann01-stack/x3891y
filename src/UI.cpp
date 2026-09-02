@@ -3,6 +3,7 @@
 #include "Icons.h" // ICON_* glyphs
 
 #include <vector>
+#include <string>
 #include <cmath>
 
 namespace
@@ -153,77 +154,6 @@ namespace NasakiUI
         ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y));
         ImGui::Dummy(ImVec2(width, height));
         return changed;
-    }
-
-    void AreaChart(
-        ImVec2 pos, ImVec2 size,
-        const char* label,
-        const float* values, int count, int offset,
-        float minV, float maxV,
-        ImU32 lineColor, ImU32 fillColor)
-    {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImVec2 p1(pos.x + size.x, pos.y + size.y);
-
-        // Card background + border — same treatment as the site's
-        // .bench-chart panel — so the chart reads as one bounded, intentional
-        // element instead of text and a line floating in open space.
-        dl->AddRectFilled(pos, p1, IM_COL32(14, 20, 36, 255), 8.0f);
-        dl->AddRect(pos, p1, IM_COL32(28, 39, 64, 255), 8.0f, 0, 1.0f);
-
-        bool hasLabel = label && *label;
-        if (hasLabel)
-        {
-            dl->AddText(ImVec2(pos.x + 14, pos.y + 10), IM_COL32(139, 150, 179, 255), label);
-        }
-
-        float topPad = hasLabel ? 30.0f : 14.0f;
-        ImVec2 plotPos(pos.x + 14, pos.y + topPad);
-        ImVec2 plotSize(size.x - 28, size.y - topPad - 14.0f);
-
-        if (plotSize.x > 1.0f && plotSize.y > 1.0f)
-        {
-            for (int g = 1; g <= 3; g++)
-            {
-                float y = plotPos.y + plotSize.y * g / 4.0f;
-                dl->AddLine(ImVec2(plotPos.x, y), ImVec2(plotPos.x + plotSize.x, y), IM_COL32(255, 255, 255, 18));
-            }
-
-            if (count >= 2)
-            {
-                float range = maxV - minV;
-                if (range <= 0.0f) range = 1.0f;
-
-                std::vector<ImVec2> pts(count);
-                for (int i = 0; i < count; i++)
-                {
-                    float t = (float)i / (float)(count - 1);
-                    float raw = values[(i + offset) % count];
-                    float v = (raw - minV) / range;
-                    if (v < 0.0f) v = 0.0f;
-                    if (v > 1.0f) v = 1.0f;
-                    pts[i] = ImVec2(plotPos.x + t * plotSize.x, plotPos.y + plotSize.y * (1.0f - v));
-                }
-
-                // Fill: one convex trapezoid per segment (always convex even
-                // when the curve itself isn't, unlike a single
-                // AddConvexPolyFilled over the whole area-under-curve shape).
-                float baseline = plotPos.y + plotSize.y;
-                for (int i = 0; i + 1 < count; i++)
-                {
-                    ImVec2 a = pts[i], b = pts[i + 1];
-                    dl->AddQuadFilled(a, b, ImVec2(b.x, baseline), ImVec2(a.x, baseline), fillColor);
-                }
-
-                // Line: a wide faint pass underneath a crisp one on top, cheap
-                // stand-in for the site's drop-shadow glow on its accent lines.
-                ImU32 glow = (lineColor & 0x00FFFFFF) | (0x50u << 24);
-                dl->AddPolyline(pts.data(), count, glow, 0, 6.0f);
-                dl->AddPolyline(pts.data(), count, lineColor, 0, 2.2f);
-            }
-        }
-
-        ImGui::Dummy(size);
     }
 
     void MultiAreaChart(
@@ -456,9 +386,9 @@ namespace NasakiUI
         return 116.0f;
     }
 
-    bool GameCard(
+    GameCardAction GameCard(
         const char* id, const char* name, const char* source, const char* path,
-        bool running, float width, float alpha)
+        bool running, bool launchable, float width, float alpha)
     {
         const float height = GameCardHeight();
         const float pad = 20.0f;
@@ -469,7 +399,6 @@ namespace NasakiUI
 
         ImGui::InvisibleButton(id, ImVec2(width, height));
         bool hovered = ImGui::IsItemHovered();
-        bool clicked = ImGui::IsItemClicked() && running;
         ImVec2 afterCursor = ImGui::GetCursorPos();
 
         float hoverT = AnimateTo(ImGui::GetID(id), hovered ? 1.0f : 0.0f, 12.0f);
@@ -519,16 +448,44 @@ namespace NasakiUI
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
 
-        if (running)
-        {
-            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p1.y - pad - ImGui::GetTextLineHeight()));
-            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(127, 214, 255, 255));
-            ImGui::TextUnformatted("Klikni pre spustenie session");
-            ImGui::PopStyleColor();
-        }
         ImGui::PopStyleVar();
 
+        // Action button, bottom-right: launch the game, or — if it's already
+        // running — optimize it. Drawn after the card's own InvisibleButton
+        // so it sits on top and wins the click.
+        GameCardAction action = GameCardAction::None;
+        const char* actionLabel = running ? (ICON_BOLT "  Optimalizovať") : (ICON_NAV_GAMES "  Spustiť");
+        bool actionEnabled = running || launchable;
+        if (actionEnabled)
+        {
+            ImVec2 btnSize(ImGui::CalcTextSize(actionLabel).x + 28.0f, 30.0f);
+            ImVec2 b0(p1.x - pad - btnSize.x, p1.y - pad - btnSize.y + 4.0f);
+            ImGui::SetCursorScreenPos(b0);
+
+            std::string btnId = std::string(id) + "_action";
+            ImGui::InvisibleButton(btnId.c_str(), btnSize);
+            bool btnHover = ImGui::IsItemHovered();
+            bool btnClick = ImGui::IsItemClicked();
+            float btnT = AnimateTo(ImGui::GetID(btnId.c_str()), btnHover ? 1.0f : 0.0f, 16.0f);
+
+            ImVec2 b1(b0.x + btnSize.x, b0.y + btnSize.y);
+            ImU32 base = running ? IM_COL32(107, 227, 163, 40) : IM_COL32(47, 127, 252, 55);
+            ImU32 hot = running ? IM_COL32(107, 227, 163, 80) : IM_COL32(47, 127, 252, 110);
+            dl->AddRectFilled(b0, b1, Col(Lerp(base, hot, btnT), alpha), 9.0f);
+
+            ImU32 fgCol = running ? IM_COL32(107, 227, 163, 255) : IM_COL32(127, 214, 255, 255);
+            ImVec2 labelSize = ImGui::CalcTextSize(actionLabel);
+            dl->AddText(
+                ImVec2(b0.x + (btnSize.x - labelSize.x) * 0.5f, b0.y + (btnSize.y - labelSize.y) * 0.5f),
+                Col(fgCol, alpha), actionLabel);
+
+            if (btnClick)
+            {
+                action = running ? GameCardAction::StartSession : GameCardAction::Launch;
+            }
+        }
+
         ImGui::SetCursorPos(afterCursor);
-        return clicked;
+        return action;
     }
 }

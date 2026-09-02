@@ -5,7 +5,7 @@
 #include <optional>
 #include <mutex>
 
-#include "imgui.h" // ImU32, used by DrawChartRow
+#include "imgui.h" // ImVec2/ImU32 in the drawing helpers below
 
 #include "ApiClient.h"
 #include "ApiWorker.h"
@@ -68,6 +68,10 @@ private:
     // One place for the "what did the boost actually do" line shown in the
     // session panel, shared by the known-game and countdown paths.
     std::string BuildBoostStatus(const std::string& gameName, bool boosted, int throttledCount) const;
+    // Applies/reverts everything gated behind the session-scoped toggles
+    // (power scheme, timer resolution, memory trim) in one place.
+    void ApplySessionOptimizations();
+    void RevertSessionOptimizations();
 
     HWND m_hwnd;
     bool m_isLaptop = false;
@@ -104,11 +108,18 @@ private:
     std::string m_boostStatus; // last outcome, shown in the session panel
 
     // Settings (the toggle cards in the Nastavenia view).
+    // Session-scoped optimizations — applied on start, reverted on end.
     bool m_boostGamePriority = true;
     bool m_throttleBackground = true;
+    bool m_highPerformancePower = true;
+    bool m_highResolutionTimer = true;
+    bool m_trimBackgroundMemory = true;
+    // Persistent / app behaviour.
     bool m_overheatWarning = true;
     bool m_autoStartSession = false;
     bool m_startWithWindows = false;
+    bool m_gameDvrDisabled = false; // mirrors the actual HKCU value
+    bool m_gameModeEnabled = true;  // mirrors the actual HKCU value
     float m_autoDetectTimer = 0.0f; // throttles the auto-detect process scan
 
     // Installed-game library (scanned off-thread; see RescanGameLibrary).
@@ -118,6 +129,7 @@ private:
     bool m_gamesScanning = false;
     bool m_gamesScanned = false;
     char m_gameSearch[64] = "";
+    std::string m_gamesLaunchNote; // result of the last launch attempt
     std::vector<unsigned long> m_runningGamePids; // parallel to m_games; 0 = not running
     float m_runningCheckTimer = 0.0f;
 

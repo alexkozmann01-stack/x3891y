@@ -34,19 +34,6 @@ namespace NasakiUI
     // when the text changed.
     bool SearchField(const char* id, const char* hint, char* buffer, size_t bufferSize, float width);
 
-    // A bordered, filled card (like the site's .bench-chart panel) containing
-    // a label and a line chart with a visible fill under the curve, a
-    // two-pass glow on the line, and 3 guide lines — instead of
-    // ImGui::PlotLines' bare single-pixel line floating with no boundary.
-    // `values`/`count`/`offset` follow ImGui::PlotLines' own convention:
-    // reads values[(i + offset) % count] for i in [0, count).
-    void AreaChart(
-        ImVec2 pos, ImVec2 size,
-        const char* label,
-        const float* values, int count, int offset,
-        float minV, float maxV,
-        ImU32 lineColor, ImU32 fillColor);
-
     struct ChartSeries
     {
         const char* name;
@@ -88,13 +75,20 @@ namespace NasakiUI
         const char* id, const char* icon, const char* title, const char* description,
         bool* value, float width, const char* badge = nullptr, float alpha = 1.0f);
 
-    // A game-library entry: name, launcher badge, install path, and a
-    // "Beží"/"Spustiť" affordance when the game's process is live. Returns
-    // true when clicked while running (i.e. start a session for it).
+    // What the user clicked on a game card, if anything.
+    enum class GameCardAction
+    {
+        None,
+        Launch,        // start the game through its launcher
+        StartSession,  // it's already running — optimize it
+    };
+
+    // A game-library entry: name, launcher badge, install path, and an
+    // action button whose meaning depends on whether the game is running.
     float GameCardHeight();
-    bool GameCard(
+    GameCardAction GameCard(
         const char* id, const char* name, const char* source, const char* path,
-        bool running, float width, float alpha = 1.0f);
+        bool running, bool launchable, float width, float alpha = 1.0f);
 
     // Dim, small, letter-spaced-looking group label for sidebar sections
     // ("Optimalizácie", "Nástroje").

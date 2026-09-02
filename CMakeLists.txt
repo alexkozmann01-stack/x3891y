@@ -28,6 +28,7 @@ add_executable(NasakiClient WIN32
     src/SystemInfo.cpp
     src/ProcessBoost.cpp
     src/Autostart.cpp
+    src/WinTweaks.cpp
     src/GameLibrary.cpp
     src/LicenseStore.cpp
 
@@ -55,6 +56,8 @@ target_link_libraries(NasakiClient PRIVATE
     pdh.lib
     dwmapi.lib
     advapi32.lib
+    powrprof.lib  # PowerGet/SetActiveScheme
+    winmm.lib     # timeBeginPeriod
 )
 
 target_compile_definitions(NasakiClient PRIVATE
