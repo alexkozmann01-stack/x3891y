@@ -17,14 +17,6 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dwmapi.lib")
 
-// DWMWA_WINDOW_CORNER_PREFERENCE only exists in dwmapi.h from the Windows 11
-// SDK onward — define it ourselves if an older SDK is in use, so this still
-// builds (and just gets square corners on the OS window edge) either way.
-#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
-#define DWMWA_WINDOW_CORNER_PREFERENCE 33
-typedef enum { DWMWCP_DEFAULT = 0, DWMWCP_DONOTROUND = 1, DWMWCP_ROUND = 2, DWMWCP_ROUNDSMALL = 3 } DWM_WINDOW_CORNER_PREFERENCE;
-#endif
-
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 // The window has no OS title bar (WS_POPUP — this is meant to read as an
