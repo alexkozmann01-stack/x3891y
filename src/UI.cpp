@@ -7,7 +7,8 @@ namespace NasakiUI
     void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 c, float s, ImU32 col)
     {
         const float half = s * 0.5f;
-        const float thickness = ImMax(1.3f, s * 0.11f);
+        const float scaledThickness = s * 0.11f;
+        const float thickness = scaledThickness > 1.3f ? scaledThickness : 1.3f; // ImMax is imgui_internal.h-only
 
         switch (icon)
         {
