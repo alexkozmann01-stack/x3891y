@@ -1,0 +1,66 @@
+cmake_minimum_required(VERSION 3.20)
+project(NasakiClient CXX)
+
+if(NOT WIN32)
+    message(FATAL_ERROR "Nasaki client targets Windows (Win32 + Direct3D 11) only.")
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(MSVC)
+    # Source files are UTF-8 (Slovak UI strings with diacritics) — without
+    # this, MSVC decodes narrow string literals using the system code page
+    # and diacritics come out mangled.
+    add_compile_options(/utf-8)
+endif()
+
+set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
+
+add_executable(NasakiClient WIN32
+    src/main.cpp
+    src/App.cpp
+    src/Theme.cpp
+    src/ApiClient.cpp
+    src/ApiWorker.cpp
+    src/SystemStats.cpp
+    src/LicenseStore.cpp
+
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
+)
+
+target_include_directories(NasakiClient PRIVATE
+    src
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+    third_party/json
+)
+
+target_link_libraries(NasakiClient PRIVATE
+    d3d11.lib
+    dxgi.lib
+    d3dcompiler.lib
+    winhttp.lib
+    pdh.lib
+)
+
+target_compile_definitions(NasakiClient PRIVATE
+    UNICODE
+    _UNICODE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
+# main.cpp resolves fonts as <exe dir>/assets/fonts/Manrope.ttf at runtime,
+# so assets/ has to live next to the built binary, not just in the source tree.
+add_custom_command(TARGET NasakiClient POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:NasakiClient>/assets
+)
