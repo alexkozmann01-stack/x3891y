@@ -165,6 +165,25 @@ void App::Unlink()
 void App::RequestStartSession()
 {
     if (!m_device.has_value() || m_sessionActive || m_boostPhase != BoostPhase::Idle) return;
+
+    // If a known game (see ProcessBoost.cpp's table) is already running,
+    // there's no need to guess from the foreground window or make the
+    // player wait through a countdown — boost it immediately.
+    std::optional<ProcessBoost::KnownGameMatch> known = ProcessBoost::FindRunningKnownGame();
+    if (known.has_value())
+    {
+        ProcessBoost::Result boost = ProcessBoost::BeginForPid(known->pid, m_throttleBackground);
+        strncpy_s(m_gameNameInput, known->displayName.c_str(), _TRUNCATE);
+        m_boostStatus = boost.throttledCount > 0
+            ? known->displayName + " zvýhodnená, " + std::to_string(boost.throttledCount) + " apiek na pozadí utlmených."
+            : known->displayName + " zvýhodnená.";
+        m_boostPhase = BoostPhase::Active;
+        StartSession();
+        return;
+    }
+
+    // Unlisted game — fall back to a short countdown so the player can
+    // switch to it, then boost whatever's in the foreground.
     m_boostPhase = BoostPhase::CountingDown;
     m_boostCountdown = 3.0f;
     m_boostStatus.clear();
@@ -619,7 +638,7 @@ void App::DrawDashboardView()
             CancelStartRequest();
         }
     }
-    else if (m_sessionActive)
+    else if (m_sessionActive || m_boostPhase == BoostPhase::Active)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Ok());
         ImGui::Text("Aktívna: %s", m_gameNameInput);
@@ -715,7 +734,7 @@ void App::DrawSettingsView()
     ImGui::Dummy(ImVec2(0, 16));
     ImGui::TextUnformatted("Optimalizácie počas hrania");
     ImGui::Dummy(ImVec2(0, 6));
-    ImGui::Checkbox("Tlmiť bežné aplikácie na pozadí (prehliadač, Discord, ...)", &m_throttleBackground);
+    NasakiUI::Toggle("Tlmiť bežné aplikácie na pozadí (prehliadač, Discord, ...)", &m_throttleBackground);
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextWrapped(
         "Hra vždy dostane vyššiu prioritu CPU počas session-y. Toto navyše dočasne "

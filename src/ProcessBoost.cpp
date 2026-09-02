@@ -4,6 +4,7 @@
 #include <tlhelp32.h>
 #include <vector>
 #include <cwctype>
+#include <functional>
 
 namespace
 {
@@ -30,6 +31,26 @@ namespace
         return out;
     }
 
+    // Snapshots running processes once and calls `fn(entry)` for each.
+    void ForEachProcess(const std::function<void(const PROCESSENTRY32W&)>& fn)
+    {
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap == INVALID_HANDLE_VALUE)
+        {
+            return;
+        }
+        PROCESSENTRY32W entry;
+        entry.dwSize = sizeof(entry);
+        if (Process32FirstW(snap, &entry))
+        {
+            do
+            {
+                fn(entry);
+            } while (Process32NextW(snap, &entry));
+        }
+        CloseHandle(snap);
+    }
+
     // Deliberately conservative: well-known consumer apps only, never
     // anything system-owned. Extend this list rather than widening the
     // matching logic if more apps need covering.
@@ -53,7 +74,52 @@ namespace
         return false;
     }
 
-    void AdjustPriority(DWORD pid, DWORD newPriority)
+    struct KnownGame
+    {
+        const wchar_t* exeName; // lowercase
+        const char* displayName;
+    };
+
+    // A static starter list of popular executable names -> display names.
+    // Good enough to make session-start instant for most players without
+    // needing the switch-to-game countdown; nowhere near exhaustive (that's
+    // realistically a server-fetched, regularly updated list for a v2 —
+    // there's no way to keep a hardcoded client-side table current with
+    // every game that ships).
+    const KnownGame kKnownGames[] = {
+        { L"cs2.exe", "Counter-Strike 2" },
+        { L"csgo.exe", "CS:GO" },
+        { L"valorant-win64-shipping.exe", "Valorant" },
+        { L"leagueclientux.exe", "League of Legends" },
+        { L"league of legends.exe", "League of Legends" },
+        { L"dota2.exe", "Dota 2" },
+        { L"fortniteclient-win64-shipping.exe", "Fortnite" },
+        { L"gta5.exe", "GTA V" },
+        { L"gta5_enhanced.exe", "GTA V" },
+        { L"rocketleague.exe", "Rocket League" },
+        { L"rainbowsix.exe", "Rainbow Six Siege" },
+        { L"rainbowsix_vulkan.exe", "Rainbow Six Siege" },
+        { L"overwatch.exe", "Overwatch 2" },
+        { L"r5apex.exe", "Apex Legends" },
+        { L"tslgame.exe", "PUBG: Battlegrounds" },
+        { L"wow.exe", "World of Warcraft" },
+        { L"wowclassic.exe", "World of Warcraft Classic" },
+        { L"rustclient.exe", "Rust" },
+        { L"dayz_x64.exe", "DayZ" },
+        { L"eurotrucks2.exe", "Euro Truck Simulator 2" },
+        { L"ats.exe", "American Truck Simulator" },
+        { L"genshinimpact.exe", "Genshin Impact" },
+        { L"ffxiv_dx11.exe", "Final Fantasy XIV" },
+        { L"terraria.exe", "Terraria" },
+        { L"shootergame.exe", "ARK: Survival Evolved" },
+        { L"eldenring.exe", "Elden Ring" },
+        { L"cyberpunk2077.exe", "Cyberpunk 2077" },
+        { L"witcher3.exe", "The Witcher 3" },
+        { L"minecraft.windows.exe", "Minecraft" },
+        { L"javaw.exe", "Minecraft" }, // ambiguous (any Java app), but common enough to be worth it
+    };
+
+    void AdjustPriority(DWORD pid, DWORD newPriority, int* adjustedCounter = nullptr)
     {
         HANDLE h = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (!h)
@@ -71,11 +137,21 @@ namespace
         if (SetPriorityClass(h, newPriority))
         {
             g_adjusted.push_back({ pid, h, original });
+            if (adjustedCounter) (*adjustedCounter)++;
         }
         else
         {
             CloseHandle(h);
         }
+    }
+
+    std::string WideToUtf8(const std::wstring& w)
+    {
+        if (w.empty()) return "";
+        int len = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+        std::string out(len, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), out.data(), len, nullptr, nullptr);
+        return out;
     }
 
     std::string ExeBaseNameUtf8NoExt(HANDLE process)
@@ -92,42 +168,48 @@ namespace
         std::wstring base = (slash == std::wstring::npos) ? full : full.substr(slash + 1);
         size_t dot = base.find_last_of(L'.');
         std::wstring nameNoExt = (dot == std::wstring::npos) ? base : base.substr(0, dot);
-
-        int len = WideCharToMultiByte(CP_UTF8, 0, nameNoExt.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        if (len <= 0)
-        {
-            return "";
-        }
-        std::string utf8(len, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, nameNoExt.c_str(), -1, utf8.data(), len, nullptr, nullptr);
-        if (!utf8.empty() && utf8.back() == '\0')
-        {
-            utf8.pop_back(); // the -1/len pair above counts the null terminator
-        }
-        return utf8;
+        return WideToUtf8(nameNoExt);
     }
 }
 
 namespace ProcessBoost
 {
-    Result Begin(bool throttleBackground)
+    std::optional<KnownGameMatch> FindRunningKnownGame()
+    {
+        std::optional<KnownGameMatch> found;
+        DWORD selfPid = GetCurrentProcessId();
+
+        ForEachProcess([&](const PROCESSENTRY32W& entry) {
+            if (found.has_value() || entry.th32ProcessID == selfPid)
+            {
+                return;
+            }
+            std::wstring nameLower = ToLowerCopy(entry.szExeFile);
+            for (const KnownGame& g : kKnownGames)
+            {
+                if (nameLower == g.exeName)
+                {
+                    found = KnownGameMatch{ entry.th32ProcessID, g.displayName };
+                    break;
+                }
+            }
+        });
+
+        return found;
+    }
+
+    Result BeginForPid(unsigned long pid, bool throttleBackground)
     {
         Result result;
+        DWORD selfPid = GetCurrentProcessId();
 
-        HWND fg = GetForegroundWindow();
-        DWORD fgPid = 0;
-        if (fg)
+        if (pid != 0 && pid != selfPid)
         {
-            GetWindowThreadProcessId(fg, &fgPid);
-        }
-
-        if (fgPid != 0 && fgPid != GetCurrentProcessId())
-        {
-            AdjustPriority(fgPid, ABOVE_NORMAL_PRIORITY_CLASS);
+            AdjustPriority(pid, ABOVE_NORMAL_PRIORITY_CLASS);
             result.foregroundFound = true;
-            result.targetPid = fgPid;
+            result.targetPid = pid;
 
-            HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, fgPid);
+            HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
             if (h)
             {
                 result.targetProcessName = ExeBaseNameUtf8NoExt(h);
@@ -137,31 +219,30 @@ namespace ProcessBoost
 
         if (throttleBackground)
         {
-            HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if (snap != INVALID_HANDLE_VALUE)
-            {
-                PROCESSENTRY32W entry;
-                entry.dwSize = sizeof(entry);
-                if (Process32FirstW(snap, &entry))
+            ForEachProcess([&](const PROCESSENTRY32W& entry) {
+                if (entry.th32ProcessID == pid || entry.th32ProcessID == selfPid)
                 {
-                    do
-                    {
-                        if (entry.th32ProcessID == fgPid || entry.th32ProcessID == GetCurrentProcessId())
-                        {
-                            continue;
-                        }
-                        if (IsAllowlistedBackground(ToLowerCopy(entry.szExeFile)))
-                        {
-                            AdjustPriority(entry.th32ProcessID, BELOW_NORMAL_PRIORITY_CLASS);
-                            result.throttledCount++;
-                        }
-                    } while (Process32NextW(snap, &entry));
+                    return;
                 }
-                CloseHandle(snap);
-            }
+                if (IsAllowlistedBackground(ToLowerCopy(entry.szExeFile)))
+                {
+                    AdjustPriority(entry.th32ProcessID, BELOW_NORMAL_PRIORITY_CLASS, &result.throttledCount);
+                }
+            });
         }
 
         return result;
+    }
+
+    Result Begin(bool throttleBackground)
+    {
+        HWND fg = GetForegroundWindow();
+        DWORD fgPid = 0;
+        if (fg)
+        {
+            GetWindowThreadProcessId(fg, &fgPid);
+        }
+        return BeginForPid(fgPid, throttleBackground);
     }
 
     void End()

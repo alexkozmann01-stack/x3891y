@@ -208,4 +208,35 @@ namespace NasakiUI
             dl->AddCircleFilled(center, radius * t, col, 64);
         }
     }
+
+    bool Toggle(const char* label, bool* value)
+    {
+        ImVec2 size(40, 22);
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImVec2 p1(p0.x + size.x, p0.y + size.y);
+
+        ImGui::InvisibleButton(label, size); // `label` doubles as the ImGui ID, same as ImGui::Checkbox
+        bool changed = ImGui::IsItemClicked();
+        bool hovered = ImGui::IsItemHovered();
+        if (changed)
+        {
+            *value = !*value;
+        }
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImU32 onCol = hovered ? IM_COL32(85, 152, 255, 255) : IM_COL32(47, 127, 252, 255);
+        ImU32 offCol = hovered ? IM_COL32(42, 56, 88, 255) : IM_COL32(28, 39, 64, 255);
+        float radius = size.y * 0.5f;
+        dl->AddRectFilled(p0, p1, *value ? onCol : offCol, radius);
+
+        float knobR = radius - 3.0f;
+        float knobX = *value ? (p1.x - radius) : (p0.x + radius);
+        dl->AddCircleFilled(ImVec2(knobX, (p0.y + p1.y) * 0.5f), knobR, IM_COL32(238, 243, 251, 255));
+
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (size.y - ImGui::GetTextLineHeight()) * 0.5f);
+        ImGui::TextUnformatted(label);
+
+        return changed;
+    }
 }

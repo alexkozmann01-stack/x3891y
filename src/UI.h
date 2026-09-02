@@ -46,4 +46,10 @@ namespace NasakiUI
     // content, mirroring the site's `.bg-glow` background — call before
     // drawing anything else in that region.
     void BackgroundGlow(ImDrawList* dl, ImVec2 center, float radius, ImU32 color);
+
+    // A pill-shaped switch with a sliding knob, colored with the accent
+    // when on — drop-in replacement for ImGui::Checkbox (same signature:
+    // mutates *value, returns true the frame it's toggled) but doesn't look
+    // like a stock ImGui checkbox square.
+    bool Toggle(const char* label, bool* value);
 }

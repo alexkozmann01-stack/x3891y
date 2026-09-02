@@ -1,17 +1,12 @@
 #pragma once
 
 #include <string>
+#include <optional>
 
 // "Prioritizácia procesov" / "Kontrola pozadia" from the landing page copy:
 // while a session is active, give the game more CPU scheduling priority and
 // (optionally) ease off a small, deliberately conservative allowlist of
 // common consumer background apps (browsers, chat clients, launchers).
-//
-// There's no game-render hook in this build (see README), so "which process
-// is the game" can't be known automatically the instant the user clicks
-// Start — App.cpp handles that by running a short countdown after the click
-// so the user can switch to the game first, then calls Begin(), which reads
-// whatever process is in the foreground at that moment.
 namespace ProcessBoost
 {
     struct Result
@@ -22,13 +17,34 @@ namespace ProcessBoost
         int throttledCount = 0;
     };
 
-    // Boosts the current foreground process (skipped if that's Nasaki
-    // itself — nothing to boost) and, if throttleBackground is set, lowers
-    // priority on any running process matching the background allowlist.
-    // Safe to call repeatedly; always pair with a later End().
+    struct KnownGameMatch
+    {
+        unsigned long pid;
+        std::string displayName; // e.g. "Counter-Strike 2"
+    };
+
+    // Scans running processes for one matching the built-in known-game
+    // executable list (see the table in ProcessBoost.cpp) and returns the
+    // first hit, if any. This is what makes starting a session instant for
+    // popular titles — no need to guess from the foreground window or make
+    // the player wait through a countdown; App.cpp only falls back to that
+    // when nothing here matches (an unlisted/indie game, most likely).
+    std::optional<KnownGameMatch> FindRunningKnownGame();
+
+    // Boosts a specific process id directly — used when FindRunningKnownGame()
+    // already identified the target with certainty. Also, if
+    // throttleBackground is set, lowers priority on any running process
+    // matching the background allowlist. Safe to call repeatedly; always
+    // pair with a later End().
+    Result BeginForPid(unsigned long pid, bool throttleBackground);
+
+    // Fallback for when no known game is running: boosts whatever process
+    // currently owns the foreground window (skipped if that's Nasaki itself
+    // — nothing to boost). Internally just resolves the pid and calls
+    // BeginForPid.
     Result Begin(bool throttleBackground);
 
-    // Restores every priority Begin() changed back to what it was before.
-    // Safe to call even if Begin() adjusted nothing.
+    // Restores every priority Begin()/BeginForPid() changed back to what it
+    // was before. Safe to call even if nothing was adjusted.
     void End();
 }
