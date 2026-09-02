@@ -12,11 +12,14 @@
 #include "SystemStats.h"
 #include "LicenseStore.h"
 
+#include "GameLibrary.h"
+
 enum class AppView
 {
     License,
     Dashboard,
     Performance,
+    Games,
     Settings,
 };
 
@@ -44,7 +47,10 @@ private:
     void DrawLicenseView();
     void DrawDashboardView();
     void DrawPerformanceView();
+    void DrawGamesView();
     void DrawSettingsView();
+    void RescanGameLibrary();
+    void SetView(AppView view); // switches view and restarts the fade-in
     void DrawPageTitle(const char* title, const char* subtitle);
     void DrawStatTile(const char* label, const std::string& value, float width);
     void DrawChartRow(const char* label, const float* values, ImU32 lineColor, float height);
@@ -104,6 +110,18 @@ private:
     bool m_autoStartSession = false;
     bool m_startWithWindows = false;
     float m_autoDetectTimer = 0.0f; // throttles the auto-detect process scan
+
+    // Installed-game library (scanned off-thread; see RescanGameLibrary).
+    std::vector<InstalledGame> m_games;
+    std::mutex m_gamesMutex;
+    std::optional<std::vector<InstalledGame>> m_pendingGames;
+    bool m_gamesScanning = false;
+    bool m_gamesScanned = false;
+    std::vector<unsigned long> m_runningGamePids; // parallel to m_games; 0 = not running
+    float m_runningCheckTimer = 0.0f;
+
+    // Content fade-in, restarted on every view switch (and on launch).
+    float m_viewFade = 0.0f;
 
     std::vector<TelemetrySample> m_sampleBuffer; // batched, flushed periodically (see SampleTick)
 

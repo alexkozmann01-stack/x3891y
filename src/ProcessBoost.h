@@ -31,6 +31,12 @@ namespace ProcessBoost
     // when nothing here matches (an unlisted/indie game, most likely).
     std::optional<KnownGameMatch> FindRunningKnownGame();
 
+    // Pid of a running process whose executable lives under `installDir`
+    // (UTF-8, case-insensitive prefix match) — how the Hry view knows which
+    // of the installed games is running right now, and which pid to boost
+    // when the user starts a session from that card.
+    std::optional<unsigned long> FindProcessUnderPath(const std::string& installDir);
+
     // Boosts a specific process id directly — used when FindRunningKnownGame()
     // already identified the target with certainty. Also, if
     // throttleBackground is set, lowers priority on any running process

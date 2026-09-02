@@ -158,11 +158,32 @@ void App::Unlink()
     m_device.reset();
     m_licenseKeyInput[0] = '\0';
     m_licenseError.clear();
-    m_view = AppView::License;
+    SetView(AppView::License);
 }
 
 // ---------------------------------------------------------------------------
 // Session lifecycle
+
+void App::SetView(AppView view)
+{
+    if (m_view == view) return;
+    m_view = view;
+    m_viewFade = 0.0f; // content fades (and rises) back in
+}
+
+void App::RescanGameLibrary()
+{
+    if (m_gamesScanning) return;
+    m_gamesScanning = true;
+
+    // Reads the registry and walks Steam/Epic manifest folders — far too
+    // slow to do inline in a frame.
+    m_worker.Enqueue([this]() {
+        std::vector<InstalledGame> found = GameLibrary::Scan();
+        std::lock_guard<std::mutex> lock(m_gamesMutex);
+        m_pendingGames = std::move(found);
+    });
+}
 
 std::string App::BuildBoostStatus(const std::string& gameName, bool boosted, int throttledCount) const
 {
@@ -342,7 +363,7 @@ void App::Update(float deltaSeconds)
                 device.deviceToken = result.deviceToken;
                 LicenseStore::Save(device);
                 m_device = device;
-                m_view = AppView::Dashboard;
+                SetView(AppView::Dashboard);
             }
             else if (result.error == "license_not_active")
             {
@@ -397,6 +418,39 @@ void App::Update(float deltaSeconds)
         }
     }
 
+    m_viewFade += deltaSeconds * 5.0f;
+    if (m_viewFade > 1.0f) m_viewFade = 1.0f;
+
+    {
+        std::lock_guard<std::mutex> lock(m_gamesMutex);
+        if (m_pendingGames.has_value())
+        {
+            m_games = std::move(*m_pendingGames);
+            m_pendingGames.reset();
+            m_gamesScanning = false;
+            m_gamesScanned = true;
+            m_runningGamePids.assign(m_games.size(), 0);
+            m_runningCheckTimer = 100.0f; // force a running-state refresh next frame
+        }
+    }
+
+    // Which installed games are running right now — one process-path scan
+    // per game, so keep it to every few seconds rather than every frame.
+    if (m_view == AppView::Games && !m_games.empty())
+    {
+        m_runningCheckTimer += deltaSeconds;
+        if (m_runningCheckTimer >= 4.0f)
+        {
+            m_runningCheckTimer = 0.0f;
+            m_runningGamePids.assign(m_games.size(), 0);
+            for (size_t i = 0; i < m_games.size(); i++)
+            {
+                std::optional<unsigned long> pid = ProcessBoost::FindProcessUnderPath(m_games[i].installPath);
+                m_runningGamePids[i] = pid.value_or(0);
+            }
+        }
+    }
+
     // Auto-start: poll for a known game every few seconds while idle, so a
     // session begins on its own when the player launches something.
     if (m_autoStartSession && m_device.has_value() &&
@@ -440,14 +494,20 @@ void App::Draw()
         DrawSidebar();
         ImGui::SameLine();
         ImGui::BeginChild("Content", ImVec2(0, 0), false);
-        ImGui::Dummy(ImVec2(0, 4));
+
+        // Content fades in (and rises a few px) on every view switch.
+        float fade = m_viewFade * m_viewFade * (3.0f - 2.0f * m_viewFade); // smoothstep
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fade);
+        ImGui::Dummy(ImVec2(0, 4 + (1.0f - fade) * 10.0f));
         switch (m_view)
         {
             case AppView::Dashboard:   DrawDashboardView();   break;
             case AppView::Performance: DrawPerformanceView();break;
+            case AppView::Games:       DrawGamesView();       break;
             case AppView::Settings:    DrawSettingsView();    break;
             default: break;
         }
+        ImGui::PopStyleVar();
         ImGui::EndChild();
     }
 
@@ -506,12 +566,18 @@ void App::DrawSidebar()
     auto navItem = [this](const char* id, const char* label, NasakiUI::Icon icon, AppView view) {
         if (NasakiUI::NavItem(id, label, icon, m_view == view))
         {
-            m_view = view;
+            SetView(view);
         }
     };
 
     navItem("nav_dash", "Prehľad", NasakiUI::Icon::Grid, AppView::Dashboard);
     navItem("nav_perf", "Výkon", NasakiUI::Icon::Bars, AppView::Performance);
+
+    ImGui::Dummy(ImVec2(0, 14));
+    NasakiUI::SectionLabel("KNIŽNICA");
+    ImGui::Dummy(ImVec2(0, 4));
+
+    navItem("nav_games", "Hry", NasakiUI::Icon::Gamepad, AppView::Games);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("OPTIMALIZÁCIE");
@@ -756,6 +822,95 @@ void App::DrawPageTitle(const char* title, const char* subtitle)
     }
 }
 
+void App::DrawGamesView()
+{
+    DrawPageTitle("Hry", "Hry nainštalované na tomto počítači.");
+    ImGui::Dummy(ImVec2(0, 16));
+
+    if (!m_gamesScanned && !m_gamesScanning)
+    {
+        RescanGameLibrary(); // first visit to this view kicks off the scan
+    }
+
+    if (ImGui::Button("Znova prehľadať"))
+    {
+        RescanGameLibrary();
+    }
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+    if (m_gamesScanning)
+    {
+        ImGui::TextUnformatted("Prehľadávam Steam, Epic a GOG...");
+    }
+    else
+    {
+        ImGui::Text("Nájdených: %d", (int)m_games.size());
+    }
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, 14));
+
+    if (m_games.empty())
+    {
+        if (!m_gamesScanning)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+            ImGui::TextWrapped(
+                "Nenašli sa žiadne nainštalované hry. Nasaki číta zoznam priamo zo "
+                "Steamu, Epicu a GOG — ak používaš iný launcher, session vieš stále "
+                "spustiť ručne v Prehľade.");
+            ImGui::PopStyleColor();
+        }
+        return;
+    }
+
+    const float gap = 16.0f;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    int columns = (int)((avail + gap) / (330.0f + gap));
+    if (columns < 1) columns = 1;
+    if (columns > 3) columns = 3;
+    const float cardWidth = (avail - gap * (columns - 1)) / columns;
+    const float cardHeight = NasakiUI::GameCardHeight();
+
+    ImVec2 gridOrigin = ImGui::GetCursorPos();
+    for (size_t i = 0; i < m_games.size(); i++)
+    {
+        int row = (int)i / columns;
+        int col = (int)i % columns;
+
+        // Staggered entrance: each card fades and rises slightly later than
+        // the one before it.
+        float delay = (float)i * 0.045f;
+        float t = (m_viewFade - delay) / 0.35f;
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+        float rise = (1.0f - t) * 10.0f;
+
+        ImGui::SetCursorPos(ImVec2(
+            gridOrigin.x + col * (cardWidth + gap),
+            gridOrigin.y + row * (cardHeight + gap) + rise));
+
+        const InstalledGame& g = m_games[i];
+        bool running = i < m_runningGamePids.size() && m_runningGamePids[i] != 0;
+        std::string cardId = "game_" + std::to_string(i);
+        if (NasakiUI::GameCard(cardId.c_str(), g.name.c_str(), g.source.c_str(),
+                g.installPath.c_str(), running, cardWidth, t) &&
+            m_boostPhase == BoostPhase::Idle && !m_sessionActive)
+        {
+            // Start a session boosting exactly this game's process.
+            ProcessBoost::Result boost = ProcessBoost::BeginForPid(
+                m_boostGamePriority ? m_runningGamePids[i] : 0, m_throttleBackground);
+            strncpy_s(m_gameNameInput, g.name.c_str(), _TRUNCATE);
+            m_boostStatus = BuildBoostStatus(g.name, boost.foregroundFound, boost.throttledCount);
+            m_boostPhase = BoostPhase::Active;
+            StartSession();
+            SetView(AppView::Dashboard);
+        }
+    }
+
+    int rows = ((int)m_games.size() + columns - 1) / columns;
+    ImGui::SetCursorPos(ImVec2(gridOrigin.x, gridOrigin.y + rows * (cardHeight + gap)));
+}
+
 void App::DrawSettingsView()
 {
     DrawPageTitle("Nastavenia", "Optimalizácie a správa tohto zariadenia.");
@@ -813,12 +968,18 @@ void App::DrawSettingsView()
     {
         int row = i / columns;
         int col = i % columns;
+
+        // Staggered fade + rise, same treatment as the Hry grid.
+        float t = (m_viewFade - (float)i * 0.045f) / 0.35f;
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+
         ImGui::SetCursorPos(ImVec2(
             gridOrigin.x + col * (cardWidth + gap),
-            gridOrigin.y + row * (cardHeight + gap)));
+            gridOrigin.y + row * (cardHeight + gap) + (1.0f - t) * 10.0f));
 
         const CardDef& c = cards[i];
-        if (NasakiUI::SettingCard(c.id, c.icon, c.title, c.description, c.value, cardWidth, c.badge))
+        if (NasakiUI::SettingCard(c.id, c.icon, c.title, c.description, c.value, cardWidth, c.badge, t))
         {
             if (c.value == &m_startWithWindows)
             {

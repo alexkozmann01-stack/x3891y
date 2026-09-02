@@ -28,6 +28,7 @@ add_executable(NasakiClient WIN32
     src/SystemInfo.cpp
     src/ProcessBoost.cpp
     src/Autostart.cpp
+    src/GameLibrary.cpp
     src/LicenseStore.cpp
 
     ${IMGUI_DIR}/imgui.cpp

@@ -2,6 +2,30 @@
 #include "Theme.h" // NasakiFonts, for the card title font
 
 #include <vector>
+#include <cmath>
+
+namespace
+{
+    // Routes a hardcoded color through ImGui so it picks up the pushed
+    // ImGuiStyleVar_Alpha (used for the view fade-in) plus any per-widget
+    // alpha the caller passes for staggered entrances.
+    ImU32 Col(ImU32 c, float alpha = 1.0f)
+    {
+        return ImGui::GetColorU32(c, alpha);
+    }
+
+    ImU32 Lerp(ImU32 a, ImU32 b, float t)
+    {
+        ImVec4 av = ImGui::ColorConvertU32ToFloat4(a);
+        ImVec4 bv = ImGui::ColorConvertU32ToFloat4(b);
+        ImVec4 out(
+            av.x + (bv.x - av.x) * t,
+            av.y + (bv.y - av.y) * t,
+            av.z + (bv.z - av.z) * t,
+            av.w + (bv.w - av.w) * t);
+        return ImGui::ColorConvertFloat4ToU32(out);
+    }
+}
 
 namespace NasakiUI
 {
@@ -124,7 +148,38 @@ namespace NasakiUI
             dl->AddCircleFilled(c, s * 0.08f, col, 12);
             break;
         }
+        case Icon::Gamepad:
+        {
+            // Rounded body with a d-pad cross on the left and two buttons
+            // on the right — reads as a controller at small sizes.
+            ImVec2 bodyMin(c.x - s * 0.5f, c.y - s * 0.26f);
+            ImVec2 bodyMax(c.x + s * 0.5f, c.y + s * 0.26f);
+            dl->AddRectFilled(bodyMin, bodyMax, col, s * 0.26f);
+
+            ImU32 cut = IM_COL32(14, 20, 36, 255);
+            float armLen = s * 0.1f;
+            float armThick = s * 0.05f;
+            ImVec2 dpad(c.x - s * 0.26f, c.y);
+            dl->AddRectFilled(ImVec2(dpad.x - armLen, dpad.y - armThick), ImVec2(dpad.x + armLen, dpad.y + armThick), cut);
+            dl->AddRectFilled(ImVec2(dpad.x - armThick, dpad.y - armLen), ImVec2(dpad.x + armThick, dpad.y + armLen), cut);
+            dl->AddCircleFilled(ImVec2(c.x + s * 0.19f, c.y - s * 0.06f), s * 0.06f, cut, 10);
+            dl->AddCircleFilled(ImVec2(c.x + s * 0.31f, c.y + s * 0.06f), s * 0.06f, cut, 10);
+            break;
         }
+        }
+    }
+
+    float AnimateTo(ImGuiID id, float target, float speed)
+    {
+        ImGuiStorage* storage = ImGui::GetStateStorage();
+        float current = storage->GetFloat(id, target);
+        float dt = ImGui::GetIO().DeltaTime;
+        if (dt > 0.0f)
+        {
+            current += (target - current) * (1.0f - std::exp(-speed * dt));
+        }
+        storage->SetFloat(id, current);
+        return current;
     }
 
     bool NavItem(const char* id, const char* label, Icon icon, bool active)
@@ -279,14 +334,16 @@ namespace NasakiUI
         }
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
+        // Slide/tint between states instead of snapping.
+        float t = AnimateTo(ImGui::GetID(label), *value ? 1.0f : 0.0f, 16.0f);
         ImU32 onCol = hovered ? IM_COL32(85, 152, 255, 255) : IM_COL32(47, 127, 252, 255);
         ImU32 offCol = hovered ? IM_COL32(42, 56, 88, 255) : IM_COL32(28, 39, 64, 255);
         float radius = size.y * 0.5f;
-        dl->AddRectFilled(p0, p1, *value ? onCol : offCol, radius);
+        dl->AddRectFilled(p0, p1, Col(Lerp(offCol, onCol, t)), radius);
 
         float knobR = radius - 3.0f;
-        float knobX = *value ? (p1.x - radius) : (p0.x + radius);
-        dl->AddCircleFilled(ImVec2(knobX, (p0.y + p1.y) * 0.5f), knobR, IM_COL32(238, 243, 251, 255));
+        float knobX = (p0.x + radius) + t * (size.x - radius * 2.0f);
+        dl->AddCircleFilled(ImVec2(knobX, (p0.y + p1.y) * 0.5f), knobR, Col(IM_COL32(238, 243, 251, 255)));
 
         ImGui::SameLine();
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (size.y - ImGui::GetTextLineHeight()) * 0.5f);
@@ -320,7 +377,7 @@ namespace NasakiUI
 
     bool SettingCard(
         const char* id, Icon icon, const char* title, const char* description,
-        bool* value, float width, const char* badge)
+        bool* value, float width, const char* badge, float alpha)
     {
         const float height = SettingCardHeight();
         const float pad = 22.0f;
@@ -338,31 +395,36 @@ namespace NasakiUI
         }
         ImVec2 afterCursor = ImGui::GetCursorPos();
 
+        ImGuiID baseId = ImGui::GetID(id);
+        float hoverT = AnimateTo(baseId, hovered ? 1.0f : 0.0f, 12.0f);
+        float onT = AnimateTo(baseId + 1, *value ? 1.0f : 0.0f, 16.0f);
+
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImU32 bg = hovered ? IM_COL32(19, 27, 47, 255) : IM_COL32(14, 20, 36, 255);
-        ImU32 border = *value ? IM_COL32(47, 127, 252, 130) : IM_COL32(28, 39, 64, 255);
-        dl->AddRectFilled(p0, p1, bg, 14.0f);
-        dl->AddRect(p0, p1, border, 14.0f, 0, 1.0f);
+        ImU32 bg = Lerp(IM_COL32(14, 20, 36, 255), IM_COL32(21, 30, 52, 255), hoverT);
+        ImU32 border = Lerp(IM_COL32(28, 39, 64, 255), IM_COL32(47, 127, 252, 150), onT);
+        dl->AddRectFilled(p0, p1, Col(bg, alpha), 14.0f);
+        dl->AddRect(p0, p1, Col(border, alpha), 14.0f, 0, 1.0f);
 
         // Icon in a soft accent-tinted rounded square, like the reference app.
         ImVec2 iconBoxMin(p0.x + pad, p0.y + pad);
         ImVec2 iconBoxMax(iconBoxMin.x + 34, iconBoxMin.y + 34);
-        dl->AddRectFilled(iconBoxMin, iconBoxMax, IM_COL32(47, 127, 252, 38), 10.0f);
+        dl->AddRectFilled(iconBoxMin, iconBoxMax, Col(IM_COL32(47, 127, 252, 38), alpha), 10.0f);
         DrawIcon(dl, icon,
             ImVec2((iconBoxMin.x + iconBoxMax.x) * 0.5f, (iconBoxMin.y + iconBoxMax.y) * 0.5f),
-            17.0f, IM_COL32(127, 214, 255, 255));
+            17.0f, Col(IM_COL32(127, 214, 255, 255), alpha));
 
         if (badge && *badge)
         {
             ImVec2 badgeSize = ImGui::CalcTextSize(badge);
             float badgeW = badgeSize.x + 18.0f;
-            BadgeAt(dl, ImVec2(p1.x - pad - badgeW, p0.y + pad + 4),
-                badge, IM_COL32(107, 227, 163, 255), IM_COL32(107, 227, 163, 30));
+            BadgeAt(dl, ImVec2(p1.x - pad - badgeW, p0.y + pad + 4), badge,
+                Col(IM_COL32(107, 227, 163, 255), alpha), Col(IM_COL32(107, 227, 163, 30), alpha));
         }
 
         // Title and description go through ImGui's text API (not
         // ImDrawList::AddText) so wrapping works; the cursor is put back
         // afterwards so the caller's layout isn't disturbed.
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * alpha);
         ImGui::SetCursorScreenPos(ImVec2(iconBoxMax.x + 12, p0.y + pad + 7));
         ImGui::PushFont(NasakiFonts::Heading());
         ImGui::TextUnformatted(title);
@@ -374,17 +436,101 @@ namespace NasakiUI
         ImGui::TextUnformatted(description);
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
 
         // Toggle, bottom-right.
         const ImVec2 tSize(42, 23);
         ImVec2 t0(p1.x - pad - tSize.x, p1.y - pad - tSize.y);
         ImVec2 t1(t0.x + tSize.x, t0.y + tSize.y);
         float radius = tSize.y * 0.5f;
-        dl->AddRectFilled(t0, t1, *value ? IM_COL32(47, 127, 252, 255) : IM_COL32(30, 41, 66, 255), radius);
-        float knobX = *value ? (t1.x - radius) : (t0.x + radius);
-        dl->AddCircleFilled(ImVec2(knobX, (t0.y + t1.y) * 0.5f), radius - 3.0f, IM_COL32(238, 243, 251, 255), 20);
+        ImU32 track = Lerp(IM_COL32(30, 41, 66, 255), IM_COL32(47, 127, 252, 255), onT);
+        dl->AddRectFilled(t0, t1, Col(track, alpha), radius);
+        float knobX = (t0.x + radius) + onT * (tSize.x - radius * 2.0f);
+        dl->AddCircleFilled(ImVec2(knobX, (t0.y + t1.y) * 0.5f), radius - 3.0f,
+            Col(IM_COL32(238, 243, 251, 255), alpha), 20);
 
         ImGui::SetCursorPos(afterCursor);
         return changed;
+    }
+
+    float GameCardHeight()
+    {
+        return 116.0f;
+    }
+
+    bool GameCard(
+        const char* id, const char* name, const char* source, const char* path,
+        bool running, float width, float alpha)
+    {
+        const float height = GameCardHeight();
+        const float pad = 20.0f;
+
+        ImVec2 localStart = ImGui::GetCursorPos();
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImVec2 p1(p0.x + width, p0.y + height);
+
+        ImGui::InvisibleButton(id, ImVec2(width, height));
+        bool hovered = ImGui::IsItemHovered();
+        bool clicked = ImGui::IsItemClicked() && running;
+        ImVec2 afterCursor = ImGui::GetCursorPos();
+
+        float hoverT = AnimateTo(ImGui::GetID(id), hovered ? 1.0f : 0.0f, 12.0f);
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImU32 bg = Lerp(IM_COL32(14, 20, 36, 255), IM_COL32(21, 30, 52, 255), hoverT);
+        ImU32 border = running ? IM_COL32(107, 227, 163, 130) : IM_COL32(28, 39, 64, 255);
+        dl->AddRectFilled(p0, p1, Col(bg, alpha), 14.0f);
+        dl->AddRect(p0, p1, Col(border, alpha), 14.0f, 0, 1.0f);
+
+        ImVec2 iconBoxMin(p0.x + pad, p0.y + pad);
+        ImVec2 iconBoxMax(iconBoxMin.x + 32, iconBoxMin.y + 32);
+        dl->AddRectFilled(iconBoxMin, iconBoxMax, Col(IM_COL32(47, 127, 252, 38), alpha), 10.0f);
+        DrawIcon(dl, Icon::Gamepad,
+            ImVec2((iconBoxMin.x + iconBoxMax.x) * 0.5f, (iconBoxMin.y + iconBoxMax.y) * 0.5f),
+            17.0f, Col(IM_COL32(127, 214, 255, 255), alpha));
+
+        // Launcher badge, and a "running" one next to it when live.
+        float badgeX = p1.x - pad;
+        if (running)
+        {
+            const char* runLabel = "Beží";
+            float w = ImGui::CalcTextSize(runLabel).x + 18.0f;
+            badgeX -= w;
+            BadgeAt(dl, ImVec2(badgeX, p0.y + pad + 3), runLabel,
+                Col(IM_COL32(107, 227, 163, 255), alpha), Col(IM_COL32(107, 227, 163, 30), alpha));
+            badgeX -= 8.0f;
+        }
+        if (source && *source)
+        {
+            float w = ImGui::CalcTextSize(source).x + 18.0f;
+            badgeX -= w;
+            BadgeAt(dl, ImVec2(badgeX, p0.y + pad + 3), source,
+                Col(IM_COL32(139, 150, 179, 255), alpha), Col(IM_COL32(139, 150, 179, 28), alpha));
+        }
+
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * alpha);
+        ImGui::SetCursorScreenPos(ImVec2(iconBoxMax.x + 12, p0.y + pad + 6));
+        ImGui::PushFont(NasakiFonts::Heading());
+        ImGui::TextUnformatted(name);
+        ImGui::PopFont();
+
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + pad + 44));
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(110, 122, 150, 255));
+        ImGui::PushTextWrapPos(localStart.x + width - pad);
+        ImGui::TextUnformatted((path && *path) ? path : "Cesta neznáma");
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+
+        if (running)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p1.y - pad - ImGui::GetTextLineHeight()));
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(127, 214, 255, 255));
+            ImGui::TextUnformatted("Klikni pre spustenie session");
+            ImGui::PopStyleColor();
+        }
+        ImGui::PopStyleVar();
+
+        ImGui::SetCursorPos(afterCursor);
+        return clicked;
     }
 }

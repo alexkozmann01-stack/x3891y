@@ -22,7 +22,14 @@ namespace NasakiUI
         Thermo,    // heat / temperature
         Power,     // start with Windows
         Target,    // auto-detect
+        Gamepad,   // installed games
     };
+
+    // Frame-rate-independent ease toward `target`, with the current value
+    // kept in ImGui's per-window state storage under `id` — the immediate
+    // mode equivalent of an animated property. First frame starts at the
+    // target so nothing flashes in from zero on appear.
+    float AnimateTo(ImGuiID id, float target, float speed = 14.0f);
 
     void DrawIcon(ImDrawList* dl, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -71,7 +78,15 @@ namespace NasakiUI
     float SettingCardHeight();
     bool SettingCard(
         const char* id, Icon icon, const char* title, const char* description,
-        bool* value, float width, const char* badge = nullptr);
+        bool* value, float width, const char* badge = nullptr, float alpha = 1.0f);
+
+    // A game-library entry: name, launcher badge, install path, and a
+    // "Beží"/"Spustiť" affordance when the game's process is live. Returns
+    // true when clicked while running (i.e. start a session for it).
+    float GameCardHeight();
+    bool GameCard(
+        const char* id, const char* name, const char* source, const char* path,
+        bool running, float width, float alpha = 1.0f);
 
     // Dim, small, letter-spaced-looking group label for sidebar sections
     // ("Optimalizácie", "Nástroje").

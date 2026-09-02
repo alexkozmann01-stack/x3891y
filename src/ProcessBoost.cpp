@@ -1,4 +1,5 @@
 #include "ProcessBoost.h"
+#include "WinStr.h"
 
 #include <windows.h>
 #include <tlhelp32.h>
@@ -23,12 +24,26 @@ namespace
 
     std::wstring ToLowerCopy(const std::wstring& s)
     {
-        std::wstring out = s;
-        for (auto& c : out)
+        return WinStr::ToLower(s);
+    }
+
+    // Full executable path of a pid, or empty if it can't be read.
+    std::wstring ProcessImagePath(DWORD pid)
+    {
+        HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!h)
         {
-            c = (wchar_t)std::towlower(c);
+            return L"";
         }
-        return out;
+        wchar_t path[MAX_PATH];
+        DWORD size = MAX_PATH;
+        std::wstring result;
+        if (QueryFullProcessImageNameW(h, 0, path, &size))
+        {
+            result.assign(path, size);
+        }
+        CloseHandle(h);
+        return result;
     }
 
     // Snapshots running processes once and calls `fn(entry)` for each.
@@ -145,15 +160,6 @@ namespace
         }
     }
 
-    std::string WideToUtf8(const std::wstring& w)
-    {
-        if (w.empty()) return "";
-        int len = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
-        std::string out(len, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), out.data(), len, nullptr, nullptr);
-        return out;
-    }
-
     std::string ExeBaseNameUtf8NoExt(HANDLE process)
     {
         wchar_t path[MAX_PATH];
@@ -168,7 +174,7 @@ namespace
         std::wstring base = (slash == std::wstring::npos) ? full : full.substr(slash + 1);
         size_t dot = base.find_last_of(L'.');
         std::wstring nameNoExt = (dot == std::wstring::npos) ? base : base.substr(0, dot);
-        return WideToUtf8(nameNoExt);
+        return WinStr::ToUtf8(nameNoExt);
     }
 }
 
@@ -195,6 +201,35 @@ namespace ProcessBoost
             }
         });
 
+        return found;
+    }
+
+    std::optional<unsigned long> FindProcessUnderPath(const std::string& installDir)
+    {
+        if (installDir.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::wstring prefix = WinStr::ToLower(WinStr::ToWide(installDir));
+        if (!prefix.empty() && prefix.back() != L'\\')
+        {
+            prefix += L'\\';
+        }
+
+        std::optional<unsigned long> found;
+        DWORD selfPid = GetCurrentProcessId();
+        ForEachProcess([&](const PROCESSENTRY32W& entry) {
+            if (found.has_value() || entry.th32ProcessID == selfPid)
+            {
+                return;
+            }
+            std::wstring path = WinStr::ToLower(ProcessImagePath(entry.th32ProcessID));
+            if (!path.empty() && path.rfind(prefix, 0) == 0)
+            {
+                found = entry.th32ProcessID;
+            }
+        });
         return found;
     }
 
