@@ -105,7 +105,7 @@ namespace
     }
 }
 
-App::App()
+App::App(HWND hwnd) : m_hwnd(hwnd)
 {
     ApplyNasakiTheme();
     m_device = LicenseStore::Load();
@@ -326,6 +326,8 @@ void App::Draw()
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("NasakiRoot", nullptr, flags);
 
+    DrawTitleBar();
+
     if (m_view == AppView::License || !m_device.has_value())
     {
         DrawLicenseView();
@@ -352,14 +354,42 @@ void App::Draw()
 // ---------------------------------------------------------------------------
 // Views
 
-void App::DrawSidebar()
+// This window has no OS title bar (see main.cpp: WS_POPUP), so this draws a
+// custom one. Its height (36px) and the reserved button-strip width (70px,
+// inside the 76px main.cpp treats as non-draggable) must stay in sync with
+// kTitleBarHeight/kTitleBarButtonsWidth there — that's what makes the rest
+// of this strip work as a window drag handle via WM_NCHITTEST.
+void App::DrawTitleBar()
 {
-    ImGui::BeginChild("Sidebar", ImVec2(220, 0), true);
+    ImGui::BeginChild("TitleBar", ImVec2(0, 36), false, ImGuiWindowFlags_NoScrollbar);
 
+    ImGui::SetCursorPos(ImVec2(16, 9));
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent2());
     ImGui::TextUnformatted("NASAKI");
     ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 12));
+
+    float windowWidth = ImGui::GetWindowWidth();
+    ImGui::SetCursorPos(ImVec2(windowWidth - 70, 4));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    if (ImGui::Button("_", ImVec2(28, 28)))
+    {
+        ShowWindow(m_hwnd, SW_MINIMIZE);
+    }
+    ImGui::SameLine(0, 4);
+    if (ImGui::Button("x", ImVec2(28, 28)))
+    {
+        PostMessageW(m_hwnd, WM_CLOSE, 0, 0);
+    }
+    ImGui::PopStyleColor();
+
+    ImGui::EndChild();
+    ImGui::Separator();
+}
+
+void App::DrawSidebar()
+{
+    ImGui::BeginChild("Sidebar", ImVec2(220, 0), true);
+    ImGui::Dummy(ImVec2(0, 4));
 
     auto navItem = [this](const char* label, AppView view) {
         bool selected = (m_view == view);
@@ -404,10 +434,6 @@ void App::DrawLicenseView()
 
     ImGui::BeginChild("LicenseCard", cardSize, true);
 
-    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent2());
-    ImGui::TextUnformatted("NASAKI");
-    ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 8));
     ImGui::TextUnformatted("Aktivovať licenciu");
     ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
     ImGui::TextWrapped("Zadaj licenčný kľúč z tvojho účtu na nasaki.eu.");

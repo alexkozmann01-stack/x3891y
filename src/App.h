@@ -18,6 +18,11 @@ enum class AppView
     Settings,
 };
 
+// main.cpp is the only includer of this header and it needs <windows.h>
+// itself anyway, so pull in the real HWND rather than risk a forward-declare
+// mismatch (HWND's underlying type depends on whether STRICT is defined).
+#include <windows.h>
+
 // Owns all app state and draws the whole UI for the current frame. One
 // instance, created once in main.cpp and driven from the render loop:
 //   app.Update(deltaSeconds);
@@ -25,13 +30,14 @@ enum class AppView
 class App
 {
 public:
-    App();
+    explicit App(HWND hwnd);
 
     void Update(float deltaSeconds);
     void Draw();
 
 private:
     // ---- views ----
+    void DrawTitleBar();
     void DrawSidebar();
     void DrawLicenseView();
     void DrawDashboardView();
@@ -47,6 +53,8 @@ private:
     void StartSession();
     void StopSession();
     void SampleTick(float deltaSeconds);
+
+    HWND m_hwnd;
 
     AppView m_view = AppView::License;
 

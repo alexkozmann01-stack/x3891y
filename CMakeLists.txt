@@ -48,6 +48,7 @@ target_link_libraries(NasakiClient PRIVATE
     d3dcompiler.lib
     winhttp.lib
     pdh.lib
+    dwmapi.lib
 )
 
 target_compile_definitions(NasakiClient PRIVATE
@@ -57,10 +58,6 @@ target_compile_definitions(NasakiClient PRIVATE
     WIN32_LEAN_AND_MEAN
 )
 
-# main.cpp resolves fonts as <exe dir>/assets/fonts/Manrope.ttf at runtime,
-# so assets/ has to live next to the built binary, not just in the source tree.
-add_custom_command(TARGET NasakiClient POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
-        $<TARGET_FILE_DIR:NasakiClient>/assets
-)
+# NasakiClient.exe is fully self-contained — the UI font is compiled in
+# (src/ManropeFont.h, generated from assets/fonts/Manrope.ttf), so nothing
+# needs to be copied next to the binary after building.

@@ -3,18 +3,37 @@
 // intentionally boilerplate; App.cpp is where the actual Nasaki UI lives.
 
 #include "App.h"
+#include "ManropeFont.h"
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
 #include <windows.h>
+#include <windowsx.h> // GET_X_LPARAM / GET_Y_LPARAM
 #include <d3d11.h>
-#include <string>
+#include <dwmapi.h>
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dwmapi.lib")
+
+// DWMWA_WINDOW_CORNER_PREFERENCE only exists in dwmapi.h from the Windows 11
+// SDK onward — define it ourselves if an older SDK is in use, so this still
+// builds (and just gets square corners on the OS window edge) either way.
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+typedef enum { DWMWCP_DEFAULT = 0, DWMWCP_DONOTROUND = 1, DWMWCP_ROUND = 2, DWMWCP_ROUNDSMALL = 3 } DWM_WINDOW_CORNER_PREFERENCE;
+#endif
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+// The window has no OS title bar (WS_POPUP — this is meant to read as an
+// ImGui panel, not a standard bordered Windows app), so App.cpp draws its
+// own top strip and these two constants tell WM_NCHITTEST which part of it
+// is a drag handle vs. the minimize/close buttons living at its right edge.
+// Keep these in sync with the title bar App::DrawTitleBar() actually draws.
+static const int kTitleBarHeight = 36;
+static const int kTitleBarButtonsWidth = 76;
 
 static ID3D11Device* g_pd3dDevice = nullptr;
 static ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
@@ -109,6 +128,21 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
         break;
+    case WM_NCHITTEST:
+    {
+        // WS_POPUP has no OS title bar to drag by default, so treat the top
+        // strip App.cpp draws (minus its minimize/close buttons) as one —
+        // same trick used by borderless-window apps generally.
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ScreenToClient(hWnd, &pt);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        if (pt.y >= 0 && pt.y < kTitleBarHeight && pt.x >= 0 && pt.x < rc.right - kTitleBarButtonsWidth)
+        {
+            return HTCAPTION;
+        }
+        return HTCLIENT;
+    }
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -123,8 +157,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         nullptr, nullptr, nullptr, nullptr, L"NasakiClientWindow", nullptr
     };
     RegisterClassExW(&wc);
-    HWND hwnd = CreateWindowW(
-        wc.lpszClassName, L"Nasaki", WS_OVERLAPPEDWINDOW,
+    // WS_POPUP: no OS title bar/border — this is meant to look like a
+    // floating ImGui panel, not a standard bordered Windows application
+    // window. WS_EX_APPWINDOW keeps it in the taskbar/alt-tab, which an
+    // unowned WS_POPUP window otherwise loses.
+    HWND hwnd = CreateWindowExW(
+        WS_EX_APPWINDOW, wc.lpszClassName, L"Nasaki", WS_POPUP,
         100, 100, 1180, 760, nullptr, nullptr, wc.hInstance, nullptr);
 
     if (!CreateDeviceD3D(hwnd))
@@ -132,6 +170,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
         CleanupDeviceD3D();
         UnregisterClassW(wc.lpszClassName, wc.hInstance);
         return 1;
+    }
+
+    // Rounded corners on the OS window edge itself (Windows 11 22H2+; a
+    // no-op — window just stays square-cornered — on anything older).
+    {
+        const DWM_WINDOW_CORNER_PREFERENCE pref = DWMWCP_ROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &pref, sizeof(pref));
     }
 
     ShowWindow(hwnd, SW_SHOWDEFAULT);
@@ -145,29 +190,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int)
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    // Build a UTF-8 path to assets/fonts/Manrope.ttf next to the .exe.
+    // Manrope, compiled straight into the binary (src/ManropeFont.h, generated
+    // from assets/fonts/Manrope.ttf via imgui's own misc/fonts/binary_to_
+    // compressed_c tool) — no external font file to ship or go missing.
     {
-        wchar_t modulePath[MAX_PATH];
-        GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
-        std::wstring wpath = modulePath;
-        size_t slash = wpath.find_last_of(L"\\/");
-        wpath = (slash == std::wstring::npos ? L"." : wpath.substr(0, slash)) + L"\\assets\\fonts\\Manrope.ttf";
-
-        int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wpath.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        std::string utf8Path(utf8Len, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, wpath.c_str(), -1, utf8Path.data(), utf8Len, nullptr, nullptr);
-
-        static const ImWchar ranges[] = { 0x0020, 0x017F, 0 };
-        ImFont* font = io.Fonts->AddFontFromFileTTF(utf8Path.c_str(), 18.0f, nullptr, ranges);
+        static const ImWchar ranges[] = { 0x0020, 0x017F, 0 }; // Basic Latin + Latin-1 + Latin Extended-A: covers Slovak/Czech diacritics
+        ImFont* font = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+            ManropeFont_compressed_data_base85, 18.0f, nullptr, ranges);
         if (!font)
         {
-            // Falls back silently to the default (ASCII-only) font — the
-            // app still runs, Slovak diacritics just won't render.
             io.Fonts->AddFontDefault();
         }
     }
 
-    App app;
+    App app(hwnd);
 
     bool done = false;
     while (!done)

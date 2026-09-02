@@ -15,6 +15,12 @@ A real, buildable app skeleton: license activation, a sidebar dashboard with
 live CPU/GPU/RAM readouts and charts, and full wiring to the backend API
 (device registration, session start/end, batched telemetry samples).
 
+The window is borderless (`WS_POPUP`, no OS title bar) with a custom
+minimize/close strip drawn by `App::DrawTitleBar()` — it's meant to read as
+a floating ImGui panel, not a standard bordered Windows app. `NasakiClient.exe`
+is fully self-contained: the UI font is compiled straight into the binary
+(`src/ManropeFont.h`), nothing needs to ship alongside it.
+
 **Not built yet — the two hard parts:**
 
 - **In-game overlay.** This app is currently its own standalone window, not
@@ -45,14 +51,13 @@ cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-The built `NasakiClient.exe` (in `build/Release/` or `build/Debug/`) needs
-`assets/` next to it — the CMake build copies it there automatically as a
-post-build step.
+The built `NasakiClient.exe` (in `build/Release/` or `build/Debug/`) is a
+single self-contained file — nothing needs to sit next to it.
 
-This has been written carefully against Dear ImGui's well-established
-Win32+DX11 example structure and the WinHTTP/PDH APIs, but has **not been
-compiled or run** — it was written on macOS with no Windows toolchain
-available. Expect to fix a handful of small build errors on first compile.
+CI (`.github/workflows/build.yml`) builds this on a real `windows-latest`
+GitHub Actions runner on every push, since the app was written on macOS with
+no Windows/MSVC toolchain available locally — check the Actions tab for the
+latest build status and to download a built `.exe` from a run's artifacts.
 
 ## Backend integration
 
@@ -65,7 +70,19 @@ a bearer token.
 
 `src/Theme.cpp` mirrors the color palette and rounding from the nasaki.eu
 website's `:root` CSS variables 1:1, so the app and the site read as the same
-product. `assets/fonts/Manrope.ttf` is the same font family the site uses
-for body text (via Google Fonts, OFL-licensed — see `Manrope-OFL.txt`),
-loaded with a glyph range that covers Slovak/Czech diacritics, which the
-default ImGui font doesn't have.
+product. The UI font is Manrope — the same family the site uses for body text
+(via Google Fonts, OFL-licensed — see `assets/fonts/Manrope-OFL.txt`), loaded
+with a glyph range that covers Slovak/Czech diacritics, which the default
+ImGui font doesn't have.
+
+`assets/fonts/Manrope.ttf` is the source font; `src/ManropeFont.h` is what
+actually gets compiled in, generated from it via imgui's own
+`misc/fonts/binary_to_compressed_c` tool:
+
+```
+c++ -O2 -o bin2c third_party/imgui/misc/fonts/binary_to_compressed_c.cpp
+./bin2c -base85 assets/fonts/Manrope.ttf ManropeFont > src/ManropeFont.h
+```
+
+Only needed again if the font itself changes — regenerate and commit the
+header, `assets/fonts/Manrope.ttf` isn't read at runtime.
