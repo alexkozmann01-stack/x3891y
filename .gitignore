@@ -1,0 +1,29 @@
+# Tech stack isn't decided yet, so this covers the common Windows dev setups
+# until it is — trim to what's actually used once the project starts.
+
+# .NET / C#
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# C++ / Visual Studio
+Debug/
+Release/
+x64/
+x86/
+*.obj
+*.pdb
+*.ilk
+
+# Rust
+target/
+
+# Node (if the overlay UI ends up web-based, e.g. Tauri/Electron)
+node_modules/
+dist/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
