@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include <shlobj.h>
+#include <shellapi.h> // ShellExecuteW — not pulled in by windows.h under WIN32_LEAN_AND_MEAN
 #include <fstream>
 #include <sstream>
 #include <algorithm>

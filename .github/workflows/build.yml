@@ -16,7 +16,24 @@ jobs:
         run: cmake -B build -A x64
 
       - name: Build
-        run: cmake --build build --config Release --verbose
+        shell: pwsh
+        run: |
+          cmake --build build --config Release 2>&1 | Tee-Object -FilePath build.log
+          exit $LASTEXITCODE
+
+      # Downloading raw job logs needs an authenticated token, but check-run
+      # annotations are readable on a public repo without one — so echo each
+      # compiler diagnostic as an annotation to make failures diagnosable
+      # straight from the API.
+      - name: Surface compiler diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path build.log) {
+            Select-String -Path build.log -Pattern ': (error|fatal error) [A-Z]+[0-9]+' |
+              Select-Object -First 20 |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+          }
 
       - name: Upload build output
         if: always()

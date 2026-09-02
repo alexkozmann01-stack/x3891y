@@ -15,6 +15,7 @@
 #include <ctime>
 #include <cstdio>
 #include <cstring>
+#include <cctype> // std::tolower, for the game-library search filter
 #include <algorithm>
 
 #pragma comment(lib, "dxgi.lib")
