@@ -629,11 +629,11 @@ void App::DrawSidebar()
     ImGui::Dummy(ImVec2(0, 4));
 
     navItem("nav_opt", "Optimalizácie", ICON_BOLT, AppView::Optimizations);
-    navItem("nav_startup", "Po spustení", ICON_LAYERS, AppView::Startup);
+    navItem("nav_startup", "Po spustení", ICON_ROTATE, AppView::Startup);
     navItem("nav_power", "Napájanie", ICON_POWER, AppView::Power);
     navItem("nav_storage", "Úložisko", ICON_LAYERS, AppView::Storage);
     navItem("nav_apps", "Programy", ICON_CHIP, AppView::Apps);
-    navItem("nav_backups", "Zálohy a história", ICON_ROTATE, AppView::Backups);
+    navItem("nav_backups", "Zálohy a história", ICON_CHECK, AppView::Backups);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("KNIŽNICA");
