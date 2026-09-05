@@ -1918,7 +1918,9 @@ void App::DrawAppsView()
         }
 
         ImGui::PushID((int)i);
-        ImGui::BeginChild("app", ImVec2(0, app.protectedComponent ? 104.0f : 84.0f), true);
+        // Uniform height: name, details, and one line for the action or
+        // the reason there isn't one.
+        ImGui::BeginChild("app", ImVec2(0, 112.0f), true);
 
         ImGui::PushFont(NasakiFonts::Heading());
         ImGui::TextUnformatted(app.name.c_str());
@@ -1941,10 +1943,7 @@ void App::DrawAppsView()
         }
         else if (app.uninstallable)
         {
-            ImGui::SameLine();
-            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 190.0f);
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 26.0f);
-            if (ImGui::Button("Odinštalovať", ImVec2(170.0f, 32.0f)))
+            if (ImGui::Button("Odinštalovať", ImVec2(170.0f, 30.0f)))
             {
                 m_optimizations.LaunchUninstallerAsync(app.id);
             }

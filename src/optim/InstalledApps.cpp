@@ -211,9 +211,13 @@ namespace optim
 
         // Handed to the shell as-is so the publisher's own uninstaller runs,
         // interactively. Nasaki deletes nothing itself.
+        // Routed through `start` so the stored command's own quoting is
+        // handled the way Windows handles it. The console host is hidden;
+        // the uninstaller itself is a separate process and shows normally.
         std::wstring command = WinStr::ToWide(app.uninstallCommand);
+        std::wstring arguments = L"/c start \"\" " + command;
         HINSTANCE result = ShellExecuteW(nullptr, nullptr, L"cmd.exe",
-            (L"/c start \"\" " + command).c_str(), nullptr, SW_SHOWNORMAL);
+            arguments.c_str(), nullptr, SW_HIDE);
 
         if ((INT_PTR)result <= 32)
         {
