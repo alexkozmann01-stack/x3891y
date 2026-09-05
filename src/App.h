@@ -25,6 +25,7 @@ enum class AppView
     Power,
     Storage,
     Backups,
+    Apps,
     Games,
     Settings,
 };
@@ -58,6 +59,7 @@ private:
     void DrawPowerView();
     void DrawStorageView();
     void DrawBackupsView();
+    void DrawAppsView();
     void DrawProfileStrip();
     void DrawGamesView();
     void DrawSettingsView();
@@ -140,6 +142,7 @@ private:
     int m_optSort = 0;
     // 0 = by category, 1 = by name, 2 = applied first
     std::string m_previewProfileId; // profile whose exact changes are being shown
+    char m_appSearch[64] = "";
     std::string m_expandedOptId;
     float m_autoDetectTimer = 0.0f; // throttles the auto-detect process scan
 

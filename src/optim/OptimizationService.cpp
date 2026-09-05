@@ -567,6 +567,53 @@ namespace optim
         return count;
     }
 
+    void Service::RefreshAppsAsync()
+    {
+        if (m_appsBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this]() {
+            std::vector<InstalledApp> apps = m_apps.Scan();
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_installedApps = std::move(apps);
+            }
+            m_appsBusy.store(false);
+        });
+    }
+
+    std::vector<InstalledApp> Service::InstalledPrograms() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_installedApps;
+    }
+
+    void Service::LaunchUninstallerAsync(const std::string& appId)
+    {
+        if (m_appsBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this, appId]() {
+            InstalledApp target;
+            bool found = false;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                for (const InstalledApp& app : m_installedApps)
+                {
+                    if (app.id == appId) { target = app; found = true; break; }
+                }
+            }
+
+            Error error = found
+                ? m_apps.LaunchUninstaller(target)
+                : Error::Make(Error::Code::NotSupported, "Program sa už v zozname nenachádza.");
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_lastOutcome = Outcome{ appId, "app-uninstall", error.ok(),
+                error.ok() ? "Spustili sme odinštalátor programu. Zvyšok prebehne v jeho okne."
+                           : error.message };
+            m_appsBusy.store(false);
+        });
+    }
+
     int Service::RecommendedCount() const
     {
         std::lock_guard<std::mutex> lock(m_mutex);

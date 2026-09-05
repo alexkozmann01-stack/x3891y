@@ -189,6 +189,11 @@ void App::SetView(AppView view)
     {
         m_optimizations.RefreshStorageAsync();
     }
+    if (view == AppView::Apps && m_optimizations.InstalledPrograms().empty()
+        && !m_optimizations.AppsBusy())
+    {
+        m_optimizations.RefreshAppsAsync();
+    }
 }
 
 void App::RescanGameLibrary()
@@ -548,6 +553,7 @@ void App::Draw()
             case AppView::Power:       DrawPowerView();       break;
             case AppView::Storage:     DrawStorageView();     break;
             case AppView::Backups:     DrawBackupsView();     break;
+            case AppView::Apps:        DrawAppsView();        break;
             case AppView::Games:       DrawGamesView();       break;
             case AppView::Settings:    DrawSettingsView();    break;
             default: break;
@@ -626,6 +632,7 @@ void App::DrawSidebar()
     navItem("nav_startup", "Po spustení", ICON_LAYERS, AppView::Startup);
     navItem("nav_power", "Napájanie", ICON_POWER, AppView::Power);
     navItem("nav_storage", "Úložisko", ICON_LAYERS, AppView::Storage);
+    navItem("nav_apps", "Programy", ICON_CHIP, AppView::Apps);
     navItem("nav_backups", "Zálohy a história", ICON_ROTATE, AppView::Backups);
 
     ImGui::Dummy(ImVec2(0, 14));
@@ -1837,6 +1844,121 @@ void App::DrawBackupsView()
         ImGui::TextWrapped("%s  %s  %s — %s", record.timestampUtc.c_str(),
             record.action.c_str(), record.optimizationId.c_str(), record.message.c_str());
         ImGui::PopStyleColor();
+    }
+    ImGui::EndChild();
+}
+
+void App::DrawAppsView()
+{
+    DrawPageTitle("Programy",
+        "Čo máš nainštalované a koľko to zaberá. Odinštalovanie spustí vlastný "
+        "odinštalátor programu — Nasaki nič nemaže sám.");
+    ImGui::Dummy(ImVec2(0, 18));
+
+    if (ImGui::Button(ICON_ROTATE "  Znova načítať", ImVec2(0, 38)))
+    {
+        m_optimizations.RefreshAppsAsync();
+    }
+    ImGui::SameLine(0, 12);
+    if (ImGui::Button("Otvoriť Aplikácie a funkcie", ImVec2(0, 38)))
+    {
+        optim::AppInventory::OpenWindowsAppsSettings();
+    }
+    ImGui::SameLine(0, 12);
+    NasakiUI::SearchField("##appsearch", "Hľadať program...", m_appSearch, sizeof(m_appSearch), 260.0f);
+
+    if (std::optional<optim::Service::Outcome> outcome = m_optimizations.LastOutcome())
+    {
+        if (outcome->action == "app-uninstall")
+        {
+            ImGui::Dummy(ImVec2(0, 10));
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                outcome->success ? NasakiColors::Ok() : NasakiColors::Danger());
+            ImGui::TextWrapped("%s", outcome->message.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+
+    std::vector<optim::InstalledApp> apps = m_optimizations.InstalledPrograms();
+    if (apps.empty())
+    {
+        ImGui::Dummy(ImVec2(0, 16));
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::TextUnformatted(m_optimizations.AppsBusy()
+            ? "Čítam zoznam programov..."
+            : "Nenašli sme žiadne nainštalované programy.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    std::string needle = m_appSearch;
+    std::transform(needle.begin(), needle.end(), needle.begin(),
+        [](unsigned char c) { return (char)std::tolower(c); });
+
+    ImGui::Dummy(ImVec2(0, 12));
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+    ImGui::TextWrapped(
+        "Veľkosť je odhad, ktorý zapísal inštalátor — pri niektorých programoch chýba. "
+        "Runtime komponenty a ovládače sú označené a odinštalovať ich odtiaľto neponúkame: "
+        "závisia od nich ďalšie aplikácie.");
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, 12));
+
+    ImGui::BeginChild("applist", ImVec2(0, 0), false);
+    for (size_t i = 0; i < apps.size(); i++)
+    {
+        const optim::InstalledApp& app = apps[i];
+
+        if (!needle.empty())
+        {
+            std::string haystack = app.name + " " + app.publisher;
+            std::transform(haystack.begin(), haystack.end(), haystack.begin(),
+                [](unsigned char c) { return (char)std::tolower(c); });
+            if (haystack.find(needle) == std::string::npos) continue;
+        }
+
+        ImGui::PushID((int)i);
+        ImGui::BeginChild("app", ImVec2(0, app.protectedComponent ? 104.0f : 84.0f), true);
+
+        ImGui::PushFont(NasakiFonts::Heading());
+        ImGui::TextUnformatted(app.name.c_str());
+        ImGui::PopFont();
+
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+        std::string line = app.publisher.empty() ? "vydavateľ neuvedený" : app.publisher;
+        if (!app.version.empty()) line += "  •  " + app.version;
+        line += "  •  " + (app.estimatedBytes > 0
+            ? optim::FormatBytes(app.estimatedBytes) + " (odhad)"
+            : std::string("veľkosť neuvedená"));
+        ImGui::TextUnformatted(line.c_str());
+        ImGui::PopStyleColor();
+
+        if (app.protectedComponent)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Warn());
+            ImGui::TextWrapped(ICON_WARNING "  %s", app.protectionReason.c_str());
+            ImGui::PopStyleColor();
+        }
+        else if (app.uninstallable)
+        {
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 190.0f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 26.0f);
+            if (ImGui::Button("Odinštalovať", ImVec2(170.0f, 32.0f)))
+            {
+                m_optimizations.LaunchUninstallerAsync(app.id);
+            }
+        }
+        else
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::TextUnformatted("Bez odinštalátora — odstráň ho cez Aplikácie a funkcie.");
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::EndChild();
+        ImGui::PopID();
+        ImGui::Dummy(ImVec2(0, 6));
     }
     ImGui::EndChild();
 }

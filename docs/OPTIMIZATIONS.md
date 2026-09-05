@@ -152,6 +152,25 @@ A profile is never reported as applied when part of it did not.
 
 The battery profile is only offered on machines with a battery.
 
+## Installed programs
+
+Read from the three Uninstall keys Windows itself uses (HKLM 64-bit, HKLM
+32-bit, HKCU), with the same filters Windows applies: no display name,
+`SystemComponent`, or a patch hanging off a parent product.
+
+This is an inventory, not a remover. Nasaki deletes no files, runs no silent
+or mass uninstall, and does not "clean up leftovers". The only action is
+handing one user-selected program to the publisher's own uninstaller —
+the interactive `UninstallString` is preferred over `QuietUninstallString`
+so there is still a chance to cancel.
+
+Runtime dependencies and driver packages (Visual C++ redistributables, .NET,
+WebView2, Edge, DirectX, GPU and chipset software, Microsoft Store
+infrastructure) are flagged as protected and get no uninstall button, with
+the reason shown. Reported sizes are whatever the installer wrote to
+`EstimatedSize` and are labelled as estimates; missing sizes are shown as
+missing rather than as zero.
+
 ## Deliberately excluded
 
 The reasoning is also in `optim/Catalog.cpp` so it stays next to the code.
@@ -198,7 +217,6 @@ foreign startup entries being refused.
 
 ## Not built yet
 
-Marked plainly rather than stubbed: application management (installed-program
-inventory and uninstall), network diagnostics, driver and hardware reporting,
-and before-and-after measurement of a change. The backup journal and history
+Marked plainly rather than stubbed: network diagnostics, driver and hardware
+reporting, and before-and-after measurement of a change. The backup journal and history
 records those screens would need are already being written.

@@ -7,6 +7,7 @@
 #include "PowerPlans.h"
 #include "StorageCleanup.h"
 #include "Profiles.h"
+#include "InstalledApps.h"
 #include "../ApiWorker.h"
 
 #include <memory>
@@ -131,6 +132,13 @@ namespace optim
 
         std::vector<BackupEntry> BackupEntries() const { return m_backups.Entries(); }
 
+        // ---- installed programs ------------------------------------------
+
+        void RefreshAppsAsync();
+        std::vector<InstalledApp> InstalledPrograms() const;
+        bool AppsBusy() const { return m_appsBusy.load(); }
+        void LaunchUninstallerAsync(const std::string& appId);
+
         // Last operation's outcome, for the inline status line.
         struct Outcome
         {
@@ -158,6 +166,10 @@ namespace optim
         std::atomic<bool> m_powerBusy{ false };
 
         std::vector<Profile> m_profiles;
+
+        AppInventory m_apps;
+        std::vector<InstalledApp> m_installedApps;
+        std::atomic<bool> m_appsBusy{ false };
 
         StorageCleaner m_storage;
         std::vector<CleanupTarget> m_storageTargets;
