@@ -48,6 +48,11 @@ namespace optim
         // restore, so the next apply captures fresh.
         void Forget(const std::string& id);
 
+        // Drops a single value's backup. Startup entries share one id with
+        // one key per program, so they are restored — and forgotten — one at
+        // a time rather than all together.
+        void ForgetValue(const std::string& id, const std::string& valueKey);
+
         std::vector<BackupEntry> Entries() const;
 
         // Journal of everything applied/restored, newest last. Kept separate

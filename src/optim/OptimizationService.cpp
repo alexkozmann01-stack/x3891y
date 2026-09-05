@@ -2,7 +2,7 @@
 
 namespace optim
 {
-    Service::Service(ApiWorker* worker) : m_worker(worker)
+    Service::Service(ApiWorker* worker) : m_worker(worker), m_startup(&m_backups)
     {
         // Read the machine before building the catalog — the inventory is
         // what decides which entries are recommended here, so it cannot be
@@ -187,6 +187,62 @@ namespace optim
             if (status.state == State::Applied) count++;
         }
         return count;
+    }
+
+    void Service::RefreshStartupAsync()
+    {
+        if (m_startupBusy.exchange(true))
+        {
+            return;
+        }
+
+        m_worker->Enqueue([this]() {
+            std::vector<StartupEntry> entries = m_startup.Scan();
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_startupEntries = std::move(entries);
+            }
+            m_startupBusy.store(false);
+        });
+    }
+
+    std::vector<StartupEntry> Service::StartupPrograms() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_startupEntries;
+    }
+
+    void Service::RemoveStartupAsync(const std::string& entryId)
+    {
+        if (m_startupBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this, entryId]() {
+            Error error = m_startup.Remove(entryId);
+            std::vector<StartupEntry> entries = m_startup.Scan();
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_startupEntries = std::move(entries);
+            m_lastOutcome = Outcome{ entryId, "startup-remove", error.ok(),
+                error.ok() ? "Odstránené zo spúšťania. Pôvodnú položku držíme v zálohe."
+                           : error.message };
+            m_startupBusy.store(false);
+        });
+    }
+
+    void Service::RestoreStartupAsync(const std::string& entryId)
+    {
+        if (m_startupBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this, entryId]() {
+            Error error = m_startup.Restore(entryId);
+            std::vector<StartupEntry> entries = m_startup.Scan();
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_startupEntries = std::move(entries);
+            m_lastOutcome = Outcome{ entryId, "startup-restore", error.ok(),
+                error.ok() ? "Vrátené do spúšťania v pôvodnom znení." : error.message };
+            m_startupBusy.store(false);
+        });
     }
 
     int Service::RecommendedCount() const

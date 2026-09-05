@@ -21,6 +21,7 @@ enum class AppView
     Dashboard,
     Performance,
     Optimizations,
+    Startup,
     Games,
     Settings,
 };
@@ -50,6 +51,7 @@ private:
     void DrawDashboardView();
     void DrawPerformanceView();
     void DrawOptimizationsView();
+    void DrawStartupView();
     void DrawGamesView();
     void DrawSettingsView();
     void RescanGameLibrary();

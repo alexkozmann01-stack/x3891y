@@ -128,6 +128,7 @@ App::App(HWND hwnd) : m_hwnd(hwnd), m_optimizations(&m_worker)
         m_view = AppView::Dashboard;
     }
     m_optimizations.RefreshAsync();
+    m_optimizations.RefreshStartupAsync();
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +533,7 @@ void App::Draw()
             case AppView::Dashboard:   DrawDashboardView();   break;
             case AppView::Performance: DrawPerformanceView();break;
             case AppView::Optimizations: DrawOptimizationsView(); break;
+            case AppView::Startup:     DrawStartupView();     break;
             case AppView::Games:       DrawGamesView();       break;
             case AppView::Settings:    DrawSettingsView();    break;
             default: break;
@@ -603,14 +605,20 @@ void App::DrawSidebar()
     navItem("nav_perf", "Výkon", ICON_NAV_PERF, AppView::Performance);
 
     ImGui::Dummy(ImVec2(0, 14));
+    NasakiUI::SectionLabel("OPTIMALIZÁCIA");
+    ImGui::Dummy(ImVec2(0, 4));
+
+    navItem("nav_opt", "Optimalizácie", ICON_BOLT, AppView::Optimizations);
+    navItem("nav_startup", "Po spustení", ICON_LAYERS, AppView::Startup);
+
+    ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("KNIŽNICA");
     ImGui::Dummy(ImVec2(0, 4));
 
     navItem("nav_games", "Hry", ICON_NAV_GAMES, AppView::Games);
-    navItem("nav_opt", "Optimalizácie", ICON_BOLT, AppView::Optimizations);
 
     ImGui::Dummy(ImVec2(0, 14));
-    NasakiUI::SectionLabel("OPTIMALIZÁCIE");
+    NasakiUI::SectionLabel("SYSTÉM");
     ImGui::Dummy(ImVec2(0, 4));
 
     navItem("nav_settings", "Nastavenia", ICON_NAV_SETTINGS, AppView::Settings);
@@ -1088,6 +1096,164 @@ void App::DrawOptimizationsView()
     // region grows (a bare cursor move would not).
     ImGui::SetCursorPos(gridOrigin);
     ImGui::Dummy(ImVec2(avail, totalHeight > gap ? totalHeight - gap : totalHeight));
+}
+
+void App::DrawStartupView()
+{
+    DrawPageTitle("Po spustení",
+        "Programy, ktoré štartujú s Windows. Odstránenie si pamätá pôvodný príkaz "
+        "a vieš ho kedykoľvek vrátiť.");
+    ImGui::Dummy(ImVec2(0, 18));
+
+    if (ImGui::Button(ICON_ROTATE "  Znova načítať", ImVec2(0, 38)))
+    {
+        m_optimizations.RefreshStartupAsync();
+    }
+    ImGui::SameLine(0, 12);
+    if (ImGui::Button("Otvoriť v nastaveniach Windows", ImVec2(0, 38)))
+    {
+        optim::StartupManager::OpenWindowsStartupSettings();
+    }
+
+    std::vector<optim::StartupEntry> entries = m_optimizations.StartupPrograms();
+
+    int removable = 0;
+    int removed = 0;
+    for (const optim::StartupEntry& entry : entries)
+    {
+        if (entry.removed) removed++;
+        else if (entry.removable) removable++;
+    }
+
+    ImGui::SameLine(0, 12);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10);
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+    if (m_optimizations.StartupBusy())
+    {
+        ImGui::TextUnformatted("Načítavam...");
+    }
+    else
+    {
+        ImGui::Text("%d položiek  •  %d vieme odstrániť  •  %d odstránených",
+            (int)entries.size() - removed, removable, removed);
+    }
+    ImGui::PopStyleColor();
+
+    if (std::optional<optim::Service::Outcome> outcome = m_optimizations.LastOutcome())
+    {
+        if (outcome->action.rfind("startup-", 0) == 0)
+        {
+            ImGui::Dummy(ImVec2(0, 10));
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                outcome->success ? NasakiColors::Ok() : NasakiColors::Danger());
+            ImGui::TextWrapped("%s", outcome->message.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+
+    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+    ImGui::TextWrapped(
+        "Nasaki odstraňuje len položky z tvojho používateľského účtu a vždy si uloží presné "
+        "pôvodné znenie. Položky pre všetkých používateľov a priečinok Po spustení iba "
+        "zobrazujeme — mení ich sám Windows. Nikdy nič nevypíname hromadne.");
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, 16));
+
+    if (entries.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::TextUnformatted(m_optimizations.StartupBusy()
+            ? "Načítavam..."
+            : "Nenašli sme žiadne programy spúšťané s Windows.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float rowHeight = 74.0f;
+    const float pad = 16.0f;
+    ImVec2 origin = ImGui::GetCursorPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    for (size_t i = 0; i < entries.size(); i++)
+    {
+        const optim::StartupEntry& entry = entries[i];
+
+        float t = (m_viewFade - (float)i * 0.03f) / 0.35f;
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+
+        ImGui::SetCursorPos(ImVec2(origin.x, origin.y + i * (rowHeight + 8.0f) + (1.0f - t) * 8.0f));
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImVec2 p1(p0.x + width, p0.y + rowHeight);
+
+        ImGui::PushID((int)i);
+        ImGui::InvisibleButton("row", ImVec2(width, rowHeight));
+        bool hovered = ImGui::IsItemHovered();
+        ImVec2 after = ImGui::GetCursorPos();
+
+        ImU32 bg = hovered ? IM_COL32(27, 23, 44, 255) : IM_COL32(20, 17, 34, 255);
+        dl->AddRectFilled(p0, p1, ImGui::GetColorU32(bg), 12.0f);
+        dl->AddRect(p0, p1, ImGui::GetColorU32(
+            entry.removed ? IM_COL32(245, 177, 76, 90) : IM_COL32(42, 36, 64, 255)), 12.0f, 0, 1.0f);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * t);
+
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + 13.0f));
+        ImGui::PushFont(NasakiFonts::Heading());
+        ImGui::TextUnformatted(entry.name.c_str());
+        ImGui::PopFont();
+
+        // Second line carries the executable and where the entry lives, which
+        // is what tells the user whether removing it is safe.
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + 40.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+        ImGui::Text("%s  •  %s", entry.executable.empty() ? "?" : entry.executable.c_str(),
+            entry.location.c_str());
+        ImGui::PopStyleColor();
+
+        if (ImGui::IsMouseHoveringRect(p0, p1) && !entry.command.empty())
+        {
+            ImGui::SetTooltip("%s", entry.command.c_str());
+        }
+
+        // Action on the right.
+        const float btnW = 150.0f;
+        ImGui::SetCursorScreenPos(ImVec2(p1.x - pad - btnW, p0.y + (rowHeight - 34.0f) * 0.5f));
+        if (entry.removed)
+        {
+            if (ImGui::Button("Vrátiť späť", ImVec2(btnW, 34.0f)))
+            {
+                m_optimizations.RestoreStartupAsync(entry.id);
+            }
+        }
+        else if (entry.removable)
+        {
+            if (ImGui::Button("Odstrániť", ImVec2(btnW, 34.0f)))
+            {
+                m_optimizations.RemoveStartupAsync(entry.id);
+            }
+        }
+        else
+        {
+            // No button that would do nothing: this entry is Windows's to
+            // manage, and we say so.
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::SetCursorScreenPos(ImVec2(p1.x - pad - btnW, p0.y + (rowHeight - 18.0f) * 0.5f));
+            ImGui::TextUnformatted(entry.needsAdmin ? "Vyžaduje správcu" : "Spravuje Windows");
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::PopStyleVar();
+        ImGui::PopID();
+        ImGui::SetCursorPos(after);
+    }
+
+    // Claim the grid's footprint so ImGui doesn't warn about the cursor
+    // moves above extending the window.
+    ImGui::SetCursorPos(origin);
+    ImGui::Dummy(ImVec2(width, entries.size() * (rowHeight + 8.0f)));
 }
 
 void App::DrawGamesView()

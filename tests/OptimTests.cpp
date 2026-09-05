@@ -12,6 +12,7 @@
 #include "../src/optim/RegistryValue.h"
 #include "../src/optim/RegistryOptimization.h"
 #include "../src/optim/BackupStore.h"
+#include "../src/optim/StartupEntries.h"
 
 #include <windows.h>
 #include <cstdio>
@@ -254,6 +255,71 @@ namespace
         Check(!optim::reg::Read(TestPath(L"Gated")).existed, "nothing was written");
     }
 
+    // Removing a startup program must be exactly reversible: the command
+    // line, including its arguments, has to come back unchanged.
+    void TestStartupRemoveAndRestore(optim::BackupStore& backups)
+    {
+        std::printf("startup entry is removed and restored with its exact command\n");
+        DeleteTestKey();
+
+        const wchar_t* runKey = L"Software\\NasakiTests\\Run";
+        optim::StartupManager::SetRunSubKeyForTesting(runKey);
+
+        const wchar_t* command = L"\"C:\\Program Files\\Thing\\thing.exe\" --minimized";
+        optim::reg::WriteString({ HKEY_CURRENT_USER, runKey, L"Thing" }, command);
+
+        optim::StartupManager startup(&backups);
+
+        std::vector<optim::StartupEntry> before = startup.Scan();
+        bool found = false;
+        for (const optim::StartupEntry& e : before)
+        {
+            if (e.id == "hkcu-run:Thing")
+            {
+                found = true;
+                Check(e.removable, "HKCU Run entry is marked removable");
+                Check(e.executable == "thing.exe",
+                      "executable parsed out of the quoted command line");
+            }
+        }
+        Check(found, "entry appears in the scan");
+
+        Check(startup.Remove("hkcu-run:Thing").ok(), "remove succeeds");
+        Check(!optim::reg::Read({ HKEY_CURRENT_USER, runKey, L"Thing" }).existed,
+              "value is gone from the Run key");
+
+        // Still listed, flagged as removed, so it can be put back.
+        bool listedAsRemoved = false;
+        for (const optim::StartupEntry& e : startup.Scan())
+        {
+            if (e.id == "hkcu-run:Thing" && e.removed) listedAsRemoved = true;
+        }
+        Check(listedAsRemoved, "removed entry is still listed so it can be restored");
+
+        Check(startup.Restore("hkcu-run:Thing").ok(), "restore succeeds");
+        optim::RegSnapshot after = optim::reg::Read({ HKEY_CURRENT_USER, runKey, L"Thing" });
+        Check(after.existed && optim::reg::SnapshotAsString(after) == command,
+              "command line, arguments and quoting are byte-identical");
+
+        optim::StartupManager::SetRunSubKeyForTesting(
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+    }
+
+    // Entries Nasaki does not own must be refused rather than half-handled.
+    void TestStartupRefusesForeignEntries(optim::BackupStore& backups)
+    {
+        std::printf("startup manager refuses entries it does not own\n");
+        optim::StartupManager startup(&backups);
+
+        optim::Error error = startup.Remove("hklm-run:Something");
+        Check(!error.ok() && error.code == optim::Error::Code::NotSupported,
+              "HKLM entry cannot be removed");
+
+        optim::Error missing = startup.Restore("hkcu-run:NeverRemoved");
+        Check(!missing.ok() && missing.code == optim::Error::Code::NoBackup,
+              "restoring something we never removed reports NoBackup");
+    }
+
     // Snapshot round-trip for a non-DWORD type: restoring must put the exact
     // original bytes and type back.
     void TestSnapshotPreservesTypeAndBytes()
@@ -302,6 +368,8 @@ int main()
     TestStringOptimizationApplyAndRestore(backups);
     TestStringMismatchIsNotApplied(backups);
     TestSupportCheckBlocksApply(backups);
+    TestStartupRemoveAndRestore(backups);
+    TestStartupRefusesForeignEntries(backups);
     TestSnapshotPreservesTypeAndBytes();
 
     DeleteTestKey();

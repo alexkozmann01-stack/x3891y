@@ -34,6 +34,7 @@ add_executable(NasakiClient WIN32
     src/optim/RegistryValue.cpp
     src/optim/RegistryOptimization.cpp
     src/optim/ManualGuide.cpp
+    src/optim/StartupEntries.cpp
     src/optim/SystemInventory.cpp
     src/optim/BackupStore.cpp
     src/optim/Catalog.cpp
@@ -85,6 +86,7 @@ add_executable(NasakiTests
     tests/OptimTests.cpp
     src/optim/RegistryValue.cpp
     src/optim/RegistryOptimization.cpp
+    src/optim/StartupEntries.cpp
     src/optim/BackupStore.cpp
 )
 target_include_directories(NasakiTests PRIVATE src third_party/json)

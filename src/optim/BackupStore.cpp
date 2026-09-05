@@ -192,6 +192,12 @@ namespace optim
         }
     }
 
+    void BackupStore::ForgetValue(const std::string& id, const std::string& valueKey)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_entries.erase(Key(id, valueKey));
+    }
+
     std::vector<BackupEntry> BackupStore::Entries() const
     {
         std::lock_guard<std::mutex> lock(m_mutex);

@@ -3,6 +3,7 @@
 #include "Optimization.h"
 #include "Catalog.h"
 #include "BackupStore.h"
+#include "StartupEntries.h"
 #include "../ApiWorker.h"
 
 #include <memory>
@@ -55,6 +56,19 @@ namespace optim
         // How many entries this machine is actually advised to change.
         int RecommendedCount() const;
 
+        // ---- startup programs -------------------------------------------
+        // Kept here rather than in a separate service so startup changes land
+        // in the same backup journal and history as everything else.
+
+        void RefreshStartupAsync();
+        std::vector<StartupEntry> StartupPrograms() const;
+        bool StartupBusy() const { return m_startupBusy.load(); }
+
+        // Both act on one named entry only; there is deliberately no
+        // "remove everything" path.
+        void RemoveStartupAsync(const std::string& entryId);
+        void RestoreStartupAsync(const std::string& entryId);
+
         // Last operation's outcome, for the inline status line.
         struct Outcome
         {
@@ -72,6 +86,10 @@ namespace optim
         SystemInventory m_inventory;
         BackupStore m_backups;
         std::vector<std::unique_ptr<Optimization>> m_catalog;
+        StartupManager m_startup;
+
+        std::vector<StartupEntry> m_startupEntries;
+        std::atomic<bool> m_startupBusy{ false };
 
         mutable std::mutex m_mutex;
         std::vector<Status> m_states;     // parallel to m_catalog
