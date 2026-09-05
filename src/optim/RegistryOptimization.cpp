@@ -6,13 +6,20 @@ namespace optim
 {
     // ---------------------------------------------------------------- registry
 
-    RegistryOptimization::RegistryOptimization(Info info, std::vector<Target> targets, BackupStore* backups)
-        : m_info(std::move(info)), m_targets(std::move(targets)), m_backups(backups)
+    RegistryOptimization::RegistryOptimization(Info info, std::vector<Target> targets, BackupStore* backups,
+                                               SupportCheck extraSupportCheck)
+        : m_info(std::move(info)), m_targets(std::move(targets)), m_backups(backups),
+          m_extraSupportCheck(std::move(extraSupportCheck))
     {
     }
 
     bool RegistryOptimization::Supported() const
     {
+        if (m_extraSupportCheck && !m_extraSupportCheck())
+        {
+            return false;
+        }
+
         // The parent key existing is what tells us the feature exists on this
         // build; the value itself is often absent until first changed.
         for (const Target& target : m_targets)
@@ -146,6 +153,150 @@ namespace optim
                 return Error::Make(Error::Code::VerifyMismatch,
                     "Obnovenie prebehlo, ale kontrola nesedí.");
             }
+        }
+
+        m_backups->Forget(m_info.id);
+        m_backups->Save();
+        return Error::Ok();
+    }
+
+    // --------------------------------------------------------- registry (text)
+
+    RegistryStringOptimization::RegistryStringOptimization(Info info, std::vector<Target> targets,
+                                                           BackupStore* backups)
+        : m_info(std::move(info)), m_targets(std::move(targets)), m_backups(backups)
+    {
+    }
+
+    bool RegistryStringOptimization::Supported() const
+    {
+        for (const Target& target : m_targets)
+        {
+            if (reg::KeyExists(target.path.root, target.path.subKey))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Status RegistryStringOptimization::Read() const
+    {
+        Status status;
+        if (!Supported())
+        {
+            status.state = State::Unsupported;
+            status.detail = "Táto verzia Windows kľúč nemá.";
+            return status;
+        }
+
+        bool allApplied = true;
+        std::string detail;
+        for (const Target& target : m_targets)
+        {
+            long systemError = 0;
+            RegSnapshot snapshot = reg::Read(target.path, &systemError);
+            if (systemError != 0)
+            {
+                status.state = State::Failed;
+                status.lastError = Error::Make(Error::Code::ReadFailed,
+                    "Hodnotu sa nepodarilo prečítať.", systemError);
+                return status;
+            }
+
+            std::wstring current = reg::SnapshotAsString(snapshot);
+            bool matches = snapshot.existed && snapshot.type == REG_SZ && current == target.appliedValue;
+            allApplied = allApplied && matches;
+
+            if (!detail.empty()) detail += "  •  ";
+            detail += target.key + ": ";
+            if (!snapshot.existed)
+            {
+                detail += "nenastavené";
+            }
+            else
+            {
+                // Values here are short ASCII numbers; a narrow copy is exact.
+                detail += std::string(current.begin(), current.end());
+            }
+        }
+
+        status.state = allApplied ? State::Applied : State::NotApplied;
+        status.detail = detail;
+        return status;
+    }
+
+    Error RegistryStringOptimization::Apply()
+    {
+        if (!Supported())
+        {
+            return Error::Make(Error::Code::NotSupported, "Nastavenie nie je na tomto systéme dostupné.");
+        }
+
+        for (const Target& target : m_targets)
+        {
+            long systemError = 0;
+            RegSnapshot before = reg::Read(target.path, &systemError);
+            if (systemError != 0)
+            {
+                return Error::Make(Error::Code::ReadFailed,
+                    "Pôvodnú hodnotu sa nepodarilo prečítať, nič sa nezmenilo.", systemError);
+            }
+            m_backups->CaptureIfAbsent(m_info.id, target.key, before, m_info.title);
+        }
+        m_backups->Save();
+
+        for (const Target& target : m_targets)
+        {
+            long systemError = 0;
+            if (!reg::WriteString(target.path, target.appliedValue, &systemError))
+            {
+                return Error::Make(
+                    systemError == ERROR_ACCESS_DENIED ? Error::Code::AccessDenied : Error::Code::WriteFailed,
+                    "Zápis do registry zlyhal.", systemError);
+            }
+        }
+
+        Status after = Read();
+        if (after.state != State::Applied)
+        {
+            return Error::Make(Error::Code::VerifyMismatch,
+                "Zápis prešiel, ale kontrola ukázala inú hodnotu — možno ju prepisuje politika.");
+        }
+        return Error::Ok();
+    }
+
+    Error RegistryStringOptimization::Restore()
+    {
+        bool restoredAny = false;
+        for (const Target& target : m_targets)
+        {
+            std::optional<RegSnapshot> original = m_backups->Find(m_info.id, target.key);
+            if (!original.has_value())
+            {
+                continue;
+            }
+
+            long systemError = 0;
+            if (!reg::WriteSnapshot(target.path, *original, &systemError))
+            {
+                return Error::Make(
+                    systemError == ERROR_ACCESS_DENIED ? Error::Code::AccessDenied : Error::Code::WriteFailed,
+                    "Obnovenie pôvodnej hodnoty zlyhalo.", systemError);
+            }
+
+            RegSnapshot verify = reg::Read(target.path, nullptr);
+            if (!(verify == *original))
+            {
+                return Error::Make(Error::Code::VerifyMismatch,
+                    "Pôvodná hodnota sa zapísala, ale kontrola ju nenašla.");
+            }
+            restoredAny = true;
+        }
+
+        if (!restoredAny)
+        {
+            return Error::Make(Error::Code::NoBackup, "Nemáme zálohu — Nasaki túto hodnotu nemenil.");
         }
 
         m_backups->Forget(m_info.id);

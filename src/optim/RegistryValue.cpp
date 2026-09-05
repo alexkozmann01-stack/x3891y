@@ -90,6 +90,47 @@ namespace optim
             return true;
         }
 
+        bool WriteString(const RegPath& path, const std::wstring& value, long* systemError)
+        {
+            if (systemError) *systemError = 0;
+
+            HKEY key = nullptr;
+            LSTATUS status = RegCreateKeyExW((HKEY)path.root, path.subKey.c_str(), 0, nullptr,
+                REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, nullptr);
+            if (status != ERROR_SUCCESS)
+            {
+                if (systemError) *systemError = status;
+                return false;
+            }
+
+            // Size includes the terminator: Windows stores REG_SZ with it, and
+            // omitting it is how string values end up subtly corrupt.
+            DWORD bytes = (DWORD)((value.size() + 1) * sizeof(wchar_t));
+            status = RegSetValueExW(key, path.valueName.c_str(), 0, REG_SZ,
+                reinterpret_cast<const BYTE*>(value.c_str()), bytes);
+            RegCloseKey(key);
+
+            if (status != ERROR_SUCCESS)
+            {
+                if (systemError) *systemError = status;
+                return false;
+            }
+            return true;
+        }
+
+        std::wstring SnapshotAsString(const RegSnapshot& snapshot)
+        {
+            if (!snapshot.existed || snapshot.raw.size() < sizeof(wchar_t))
+            {
+                return L"";
+            }
+            const wchar_t* text = reinterpret_cast<const wchar_t*>(snapshot.raw.data());
+            size_t maxChars = snapshot.raw.size() / sizeof(wchar_t);
+            size_t length = 0;
+            while (length < maxChars && text[length] != L'\0') length++;
+            return std::wstring(text, length);
+        }
+
         bool DeleteValue(const RegPath& path, long* systemError)
         {
             if (systemError) *systemError = 0;

@@ -863,15 +863,24 @@ void App::DrawOptimizationsView()
     DrawPageTitle("Optimalizácie", "Overené, vratné nastavenia Windows. Každá zmena si pamätá pôvodnú hodnotu.");
     ImGui::Dummy(ImVec2(0, 18));
 
-    static const char* kTabs[] = { "Všetko", "Všeobecné", "Hranie", "Súkromie" };
+    // Tab 0 filters by classification rather than category: "what should I
+    // change on this machine" is the question most users actually have, and
+    // it is answered from the detected hardware, not from the setting list.
+    static const char* kTabs[] = {
+        "Odporúčané", "Všetko", "Všeobecné", "Hranie", "Súkromie", "Štart", "Úložisko"
+    };
     static const optim::Category kTabCategory[] = {
-        optim::Category::General, // unused for index 0
+        optim::Category::General, // unused (index 0 = classification filter)
+        optim::Category::General, // unused (index 1 = everything)
         optim::Category::General,
         optim::Category::Gaming,
         optim::Category::Privacy,
+        optim::Category::Startup,
+        optim::Category::Storage,
     };
+    const int kTabCount = (int)(sizeof(kTabs) / sizeof(kTabs[0]));
 
-    int clickedTab = NasakiUI::TabBar("opttabs", kTabs, 4, m_optCategoryTab);
+    int clickedTab = NasakiUI::TabBar("opttabs", kTabs, kTabCount, m_optCategoryTab);
     if (clickedTab >= 0) m_optCategoryTab = clickedTab;
     ImGui::Dummy(ImVec2(0, 14));
 
@@ -894,7 +903,17 @@ void App::DrawOptimizationsView()
     }
     else
     {
-        ImGui::Text("%d použitých", m_optimizations.AppliedCount());
+        int recommended = m_optimizations.RecommendedCount();
+        if (recommended > 0)
+        {
+            ImGui::Text("%d použitých  •  %d odporúčaných pre tento počítač",
+                m_optimizations.AppliedCount(), recommended);
+        }
+        else
+        {
+            ImGui::Text("%d použitých  •  nič ďalšie tu neodporúčame",
+                m_optimizations.AppliedCount());
+        }
     }
     ImGui::PopStyleColor();
 
@@ -918,7 +937,18 @@ void App::DrawOptimizationsView()
     visible.reserve(rows.size());
     for (size_t i = 0; i < rows.size(); i++)
     {
-        if (m_optCategoryTab != 0 && rows[i].info->category != kTabCategory[m_optCategoryTab])
+        if (m_optCategoryTab == 0)
+        {
+            // Only entries this machine is actually advised to change, and
+            // only while they aren't already in place.
+            if (rows[i].info->classification != optim::Classification::Recommended ||
+                rows[i].status.state == optim::State::Applied ||
+                rows[i].status.state == optim::State::Unsupported)
+            {
+                continue;
+            }
+        }
+        else if (m_optCategoryTab != 1 && rows[i].info->category != kTabCategory[m_optCategoryTab])
         {
             continue;
         }
@@ -941,6 +971,11 @@ void App::DrawOptimizationsView()
             if (aApplied != bApplied) return aApplied;
             return rows[a].info->title < rows[b].info->title;
         }
+        // Default order leads with what this machine is advised to change,
+        // so the useful entries aren't buried under the merely available.
+        int aRank = (int)rows[a].info->classification;
+        int bRank = (int)rows[b].info->classification;
+        if (aRank != bRank) return aRank < bRank;
         if (rows[a].info->category != rows[b].info->category)
         {
             return (int)rows[a].info->category < (int)rows[b].info->category;
@@ -1001,6 +1036,9 @@ void App::DrawOptimizationsView()
             model.evidence = optim::EvidenceLabel(row.info->evidence);
             model.tradeoffs = row.info->tradeoffs.c_str();
             model.changeSummary = row.info->changeSummary.c_str();
+            model.classification = optim::ClassificationLabel(row.info->classification);
+            model.classificationReason = row.info->classificationReason.c_str();
+            model.recommended = row.info->classification == optim::Classification::Recommended;
             model.stateDetail = row.status.detail.c_str();
             model.errorMessage = row.status.lastError.message.c_str();
             model.requiresAdmin = row.info->requiresAdmin;
@@ -1015,6 +1053,7 @@ void App::DrawOptimizationsView()
             case optim::State::Unsupported:    model.state = NasakiUI::OptState::Unsupported; break;
             case optim::State::PendingRestart: model.state = NasakiUI::OptState::PendingRestart; break;
             case optim::State::Failed:         model.state = NasakiUI::OptState::Failed; break;
+            case optim::State::Manual:         model.state = NasakiUI::OptState::Manual; break;
             default:                           model.state = NasakiUI::OptState::Unknown; break;
             }
 
@@ -1025,6 +1064,13 @@ void App::DrawOptimizationsView()
                 break;
             case NasakiUI::OptCardAction::Restore:
                 m_optimizations.RestoreAsync(row.info->id);
+                break;
+            case NasakiUI::OptCardAction::OpenSettings:
+                // Reuses ApplyAsync deliberately: for a manual entry "apply"
+                // is defined as opening the Settings page, and routing it
+                // through the service keeps the outcome line and the history
+                // journal accurate about what was actually done.
+                m_optimizations.ApplyAsync(row.info->id);
                 break;
             case NasakiUI::OptCardAction::ToggleDetails:
                 m_expandedOptId = expanded ? std::string() : row.info->id;

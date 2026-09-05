@@ -2,6 +2,7 @@
 
 #include "Optimization.h"
 #include "BackupStore.h"
+#include "SystemInventory.h"
 
 #include <memory>
 #include <vector>
@@ -22,9 +23,15 @@ namespace optim
     //   * Service disabling, page-file changes, registry cleaning, network
     //     stack tweaks — either unsupported, system-wide, or not
     //     substantiated.
-    std::vector<std::unique_ptr<Optimization>> BuildCatalog(BackupStore* backups);
+    // The inventory is required, not optional: it is what decides whether an
+    // entry is Recommended for *this* machine or merely Situational. Without
+    // it the catalog could only fall back to "recommended because it exists",
+    // which is the thing we are explicitly avoiding.
+    std::vector<std::unique_ptr<Optimization>> BuildCatalog(BackupStore* backups,
+                                                            const SystemInventory& inventory);
 
     const char* CategoryLabel(Category category);
     const char* BenefitLabel(Benefit benefit);
     const char* EvidenceLabel(Evidence evidence);
+    const char* ClassificationLabel(Classification classification);
 }

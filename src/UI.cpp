@@ -558,6 +558,8 @@ namespace NasakiUI
                 return { "Čaká na reštart", IM_COL32(245, 177, 76, 255), IM_COL32(245, 177, 76, 34) };
             case OptState::Failed:
                 return { "Zlyhalo", IM_COL32(248, 113, 113, 255), IM_COL32(248, 113, 113, 34) };
+            case OptState::Manual:
+                return { "Manuálne", IM_COL32(125, 190, 255, 255), IM_COL32(125, 190, 255, 30) };
             case OptState::Unknown:
             default:
                 return { "Zisťujem...", IM_COL32(107, 100, 130, 255), IM_COL32(107, 100, 130, 24) };
@@ -633,6 +635,15 @@ namespace NasakiUI
             BadgeAt(dl, ImVec2(chipX, chipY), text, Col(fg, alpha), Col(bgCol, alpha));
             chipX += w + 6.0f;
         };
+        // Classification leads: it is the answer to "should *I* do this?",
+        // which matters more than what the setting technically is.
+        if (model.classification && *model.classification)
+        {
+            bool recommended = model.recommended && model.state != OptState::Unsupported;
+            chip(model.classification,
+                 recommended ? IM_COL32(74, 217, 145, 255) : IM_COL32(154, 147, 176, 255),
+                 recommended ? IM_COL32(74, 217, 145, 34) : IM_COL32(154, 147, 176, 22));
+        }
         chip(model.benefit, IM_COL32(167, 139, 250, 255), IM_COL32(139, 92, 246, 34));
         chip(model.evidence, IM_COL32(154, 147, 176, 255), IM_COL32(154, 147, 176, 24));
         if (model.requiresAdmin)   chip("Správca", IM_COL32(245, 177, 76, 255), IM_COL32(245, 177, 76, 30));
@@ -647,6 +658,14 @@ namespace NasakiUI
 
             ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, detailY));
             ImGui::PushTextWrapPos(localStart.x + width - pad);
+
+            if (model.classificationReason && *model.classificationReason)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Accent());
+                ImGui::Text("Prečo práve tu: %s", model.classificationReason);
+                ImGui::PopStyleColor();
+                ImGui::Dummy(ImVec2(0, 6));
+            }
 
             ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
             ImGui::TextUnformatted(model.rationale);
@@ -730,6 +749,23 @@ namespace NasakiUI
             ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, rowY + 7.0f));
             ImGui::TextUnformatted("Pracujem...");
             ImGui::PopStyleColor();
+        }
+        else if (model.state == OptState::Manual)
+        {
+            // No toggle: we don't write this value, so offering one would be
+            // a control that lies. The only honest action is opening the
+            // place where Windows exposes it.
+            if (smallButton("Otvoriť v Nastaveniach", true,
+                    IM_COL32(255, 255, 255, 255), IM_COL32(139, 92, 246, 210)))
+            {
+                action = OptCardAction::OpenSettings;
+            }
+            ImGui::SameLine(0, 8);
+            if (smallButton(expanded ? "Skryť detaily" : "Detaily", true,
+                    IM_COL32(154, 147, 176, 255), IM_COL32(255, 255, 255, 10)))
+            {
+                action = OptCardAction::ToggleDetails;
+            }
         }
         else if (controllable)
         {

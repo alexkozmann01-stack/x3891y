@@ -20,6 +20,7 @@ namespace optim
         Startup,
         Power,
         Network,
+        Storage,
     };
 
     // What a setting actually buys you. Kept separate from Category so the
@@ -44,6 +45,19 @@ namespace optim
         Anecdotal,   // widely repeated, not substantiated — we don't ship these
     };
 
+    // Whether *this machine* should change the setting. Deliberately not a
+    // property of the setting alone: the same registry value can be the right
+    // call on a 4-core laptop and pointless on a desktop that is already
+    // fast. Computed in Catalog.cpp from SystemInventory plus the current
+    // read, never assigned just because an option exists.
+    enum class Classification
+    {
+        Recommended,   // hardware/OS/current state say this machine benefits
+        Situational,   // real effect, but only under conditions we spell out
+        Advanced,      // narrow or experimental; opt-in, never pre-selected
+        Informational, // we cannot change it safely — manual guide only
+    };
+
     enum class State
     {
         Unknown,        // not read yet
@@ -52,6 +66,8 @@ namespace optim
         Unsupported,    // not available on this machine/OS build
         PendingRestart, // written, but won't take effect until restart
         Failed,         // last operation failed; see lastError
+        Manual,         // real setting, but we deliberately don't write it —
+                        // the card links to where Windows exposes it
     };
 
     struct Error
@@ -98,6 +114,14 @@ namespace optim
         // What "applied" concretely changes, shown in the details pane and
         // in the profile preview before anything is written.
         std::string changeSummary;
+
+        // Filled in per machine when the catalog is built. `classification`
+        // decides which tab a card appears under; `classificationReason` is
+        // shown verbatim so the user can see *why* it landed there
+        // ("8 GB RAM detected", "no battery — desktop") rather than trusting
+        // a bare label.
+        Classification classification = Classification::Situational;
+        std::string classificationReason;
     };
 
     // A read of the live system, plus whatever went wrong reading it.

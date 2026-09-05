@@ -104,7 +104,7 @@ namespace NasakiUI
     // presentation: an unsupported setting shows why and offers no control,
     // a failed one shows the error, and nothing reads as "on" unless the
     // service verified it against the live system.
-    enum class OptState { Unknown, Applied, NotApplied, Unsupported, PendingRestart, Failed };
+    enum class OptState { Unknown, Applied, NotApplied, Unsupported, PendingRestart, Failed, Manual };
 
     struct OptCardModel
     {
@@ -116,6 +116,13 @@ namespace NasakiUI
         const char* evidence = "";
         const char* tradeoffs = "";
         const char* changeSummary = "";
+        // Why this machine was, or wasn't, advised to change the setting.
+        // Shown verbatim so a "Recommended" badge is never unexplained.
+        const char* classification = "";
+        const char* classificationReason = "";
+        // Set by the caller from the classification enum rather than inferred
+        // from the label text, so the highlight can't drift from the data.
+        bool recommended = false;
         const char* stateDetail = "";   // live value, e.g. "GameDVR_Enabled: 1"
         const char* errorMessage = "";  // populated when state == Failed
         OptState state = OptState::Unknown;
@@ -125,7 +132,7 @@ namespace NasakiUI
         bool busy = false;              // an apply/restore is in flight
     };
 
-    enum class OptCardAction { None, Apply, Restore, ToggleDetails };
+    enum class OptCardAction { None, Apply, Restore, ToggleDetails, OpenSettings };
 
     float OptCardHeight(bool expanded);
     OptCardAction OptCard(const OptCardModel& model, float width, bool expanded, float alpha = 1.0f);

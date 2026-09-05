@@ -33,6 +33,8 @@ add_executable(NasakiClient WIN32
 
     src/optim/RegistryValue.cpp
     src/optim/RegistryOptimization.cpp
+    src/optim/ManualGuide.cpp
+    src/optim/SystemInventory.cpp
     src/optim/BackupStore.cpp
     src/optim/Catalog.cpp
     src/optim/OptimizationService.cpp
@@ -63,7 +65,7 @@ target_link_libraries(NasakiClient PRIVATE
     dwmapi.lib
     advapi32.lib
     powrprof.lib  # PowerGet/SetActiveScheme
-    winmm.lib     # timeBeginPeriod
+    winmm.lib
 )
 
 target_compile_definitions(NasakiClient PRIVATE

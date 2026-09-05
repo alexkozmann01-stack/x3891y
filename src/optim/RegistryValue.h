@@ -47,6 +47,13 @@ namespace optim
 
         bool WriteDword(const RegPath& path, uint32_t value, long* systemError = nullptr);
 
+        // REG_SZ. Written with the terminator included, as Windows stores it.
+        bool WriteString(const RegPath& path, const std::wstring& value, long* systemError = nullptr);
+
+        // Decodes a REG_SZ snapshot's bytes back to a string; empty if the
+        // value didn't exist or held no usable text.
+        std::wstring SnapshotAsString(const RegSnapshot& snapshot);
+
         // Puts back a snapshot: deletes the value when it didn't originally
         // exist, otherwise rewrites the original type and bytes.
         bool WriteSnapshot(const RegPath& path, const RegSnapshot& snapshot, long* systemError = nullptr);

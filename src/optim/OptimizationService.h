@@ -47,6 +47,14 @@ namespace optim
         int AppliedCount() const;
         std::vector<BackupStore::HistoryRecord> History() const { return m_backups.History(); }
 
+        // What the catalog's recommendations were computed from. Read once at
+        // construction and shown on the dashboard so the user can check that
+        // Nasaki actually identified their machine correctly.
+        const SystemInventory& Inventory() const { return m_inventory; }
+
+        // How many entries this machine is actually advised to change.
+        int RecommendedCount() const;
+
         // Last operation's outcome, for the inline status line.
         struct Outcome
         {
@@ -61,6 +69,7 @@ namespace optim
         Optimization* Find(const std::string& id);
 
         ApiWorker* m_worker;
+        SystemInventory m_inventory;
         BackupStore m_backups;
         std::vector<std::unique_ptr<Optimization>> m_catalog;
 

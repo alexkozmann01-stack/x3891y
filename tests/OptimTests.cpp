@@ -185,6 +185,75 @@ namespace
         Check(!optim::reg::Read(TestPath(L"B")).existed, "B deleted (never existed originally)");
     }
 
+    // The REG_SZ kind must round-trip text exactly, and restoring must put
+    // the original string back rather than an empty value.
+    void TestStringOptimizationApplyAndRestore(optim::BackupStore& backups)
+    {
+        std::printf("REG_SZ optimization applies and rolls back to the original text\n");
+        DeleteTestKey();
+
+        // The user's original setting, as Windows would store it.
+        optim::reg::WriteString(TestPath(L"MenuShowDelay"), L"400");
+
+        std::vector<optim::RegistryStringOptimization::Target> targets = {
+            { "MenuShowDelay", TestPath(L"MenuShowDelay"), L"0" },
+        };
+        optim::RegistryStringOptimization opt(MakeInfo("test.string"), targets, &backups);
+
+        Check(opt.Read().state == optim::State::NotApplied, "starts NotApplied at \"400\"");
+        Check(opt.Apply().ok(), "apply succeeds");
+        Check(opt.Read().state == optim::State::Applied, "reads back as Applied");
+
+        optim::RegSnapshot applied = optim::reg::Read(TestPath(L"MenuShowDelay"));
+        Check(applied.type == REG_SZ, "still stored as REG_SZ, not converted to a DWORD");
+        Check(optim::reg::SnapshotAsString(applied) == L"0", "value is the string \"0\"");
+
+        Check(opt.Restore().ok(), "restore succeeds");
+        optim::RegSnapshot after = optim::reg::Read(TestPath(L"MenuShowDelay"));
+        Check(after.existed && optim::reg::SnapshotAsString(after) == L"400",
+              "original string \"400\" is back");
+    }
+
+    // A string value whose text differs must not be reported as applied just
+    // because the value exists.
+    void TestStringMismatchIsNotApplied(optim::BackupStore& backups)
+    {
+        std::printf("REG_SZ optimization compares text, not mere existence\n");
+        DeleteTestKey();
+        optim::reg::WriteString(TestPath(L"Delay"), L"0");
+
+        std::vector<optim::RegistryStringOptimization::Target> targets = {
+            { "Delay", TestPath(L"Delay"), L"0" },
+        };
+        optim::RegistryStringOptimization opt(MakeInfo("test.string.match"), targets, &backups);
+        Check(opt.Read().state == optim::State::Applied, "matching text reads as Applied");
+
+        optim::reg::WriteString(TestPath(L"Delay"), L"00");
+        Check(opt.Read().state == optim::State::NotApplied,
+              "\"00\" is not \"0\" — not reported as Applied");
+    }
+
+    // A build gate must show as Unsupported and refuse to write even though
+    // the key itself is present.
+    void TestSupportCheckBlocksApply(optim::BackupStore& backups)
+    {
+        std::printf("extra support check blocks apply even when the key exists\n");
+        DeleteTestKey();
+        optim::reg::WriteDword(TestPath(L"Seed"), 1u);
+
+        std::vector<optim::RegistryOptimization::Target> targets = {
+            { "gated", TestPath(L"Gated"), 1u },
+        };
+        optim::RegistryOptimization opt(MakeInfo("test.gated"), targets, &backups,
+                                        [] { return false; });
+
+        Check(opt.Read().state == optim::State::Unsupported,
+              "reads as Unsupported despite the key existing");
+        optim::Error error = opt.Apply();
+        Check(!error.ok() && error.code == optim::Error::Code::NotSupported, "apply refused");
+        Check(!optim::reg::Read(TestPath(L"Gated")).existed, "nothing was written");
+    }
+
     // Snapshot round-trip for a non-DWORD type: restoring must put the exact
     // original bytes and type back.
     void TestSnapshotPreservesTypeAndBytes()
@@ -230,6 +299,9 @@ int main()
     TestRestoreWithoutBackupFails(backups);
     TestUnsupportedIsNotApplied(backups);
     TestPartialStateIsNotReportedAsApplied(backups);
+    TestStringOptimizationApplyAndRestore(backups);
+    TestStringMismatchIsNotApplied(backups);
+    TestSupportCheckBlocksApply(backups);
     TestSnapshotPreservesTypeAndBytes();
 
     DeleteTestKey();
