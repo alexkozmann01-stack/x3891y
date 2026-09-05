@@ -1,4 +1,5 @@
 #include "RegistryOptimization.h"
+#include "../WinStr.h"
 
 #include <windows.h>
 
@@ -216,8 +217,7 @@ namespace optim
             }
             else
             {
-                // Values here are short ASCII numbers; a narrow copy is exact.
-                detail += std::string(current.begin(), current.end());
+                detail += WinStr::ToUtf8(current);
             }
         }
 
