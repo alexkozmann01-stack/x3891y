@@ -37,6 +37,7 @@ add_executable(NasakiClient WIN32
     src/optim/StartupEntries.cpp
     src/optim/PowerPlans.cpp
     src/optim/StorageCleanup.cpp
+    src/optim/Profiles.cpp
     src/optim/SystemInventory.cpp
     src/optim/BackupStore.cpp
     src/optim/Catalog.cpp

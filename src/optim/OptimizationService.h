@@ -6,6 +6,7 @@
 #include "StartupEntries.h"
 #include "PowerPlans.h"
 #include "StorageCleanup.h"
+#include "Profiles.h"
 #include "../ApiWorker.h"
 
 #include <memory>
@@ -104,6 +105,32 @@ namespace optim
 
         void CleanStorageAsync(const std::string& targetId);
 
+        // ---- profiles ----------------------------------------------------
+
+        const std::vector<Profile>& Profiles() const { return m_profiles; }
+
+        // Exactly what applying a profile would change, one line per setting,
+        // so the bundle is never a black box.
+        struct ProfileStep
+        {
+            std::string title;
+            std::string changeSummary;
+            State currentState = State::Unknown;
+            bool supported = true;
+        };
+        std::vector<ProfileStep> PreviewProfile(const std::string& profileId) const;
+
+        // Applies each member setting through the normal capture/write/verify
+        // path and reports how many actually landed.
+        void ApplyProfileAsync(const std::string& profileId);
+
+        // Restores everything Nasaki holds a backup for, one setting at a
+        // time, and reports failures individually.
+        void RestoreEverythingAsync();
+        int BackedUpCount() const;
+
+        std::vector<BackupEntry> BackupEntries() const { return m_backups.Entries(); }
+
         // Last operation's outcome, for the inline status line.
         struct Outcome
         {
@@ -129,6 +156,8 @@ namespace optim
         PowerPlanManager m_power;
         std::vector<PowerPlan> m_powerPlans;
         std::atomic<bool> m_powerBusy{ false };
+
+        std::vector<Profile> m_profiles;
 
         StorageCleaner m_storage;
         std::vector<CleanupTarget> m_storageTargets;

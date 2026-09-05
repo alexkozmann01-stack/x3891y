@@ -547,6 +547,7 @@ void App::Draw()
             case AppView::Startup:     DrawStartupView();     break;
             case AppView::Power:       DrawPowerView();       break;
             case AppView::Storage:     DrawStorageView();     break;
+            case AppView::Backups:     DrawBackupsView();     break;
             case AppView::Games:       DrawGamesView();       break;
             case AppView::Settings:    DrawSettingsView();    break;
             default: break;
@@ -625,6 +626,7 @@ void App::DrawSidebar()
     navItem("nav_startup", "Po spustení", ICON_LAYERS, AppView::Startup);
     navItem("nav_power", "Napájanie", ICON_POWER, AppView::Power);
     navItem("nav_storage", "Úložisko", ICON_LAYERS, AppView::Storage);
+    navItem("nav_backups", "Zálohy a história", ICON_ROTATE, AppView::Backups);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("KNIŽNICA");
@@ -739,6 +741,50 @@ void App::DrawLicenseView()
 void App::DrawDashboardView()
 {
     DrawPageTitle("Prehľad", "Živý prehľad výkonu tohto počítača.");
+
+    // What Nasaki detected. Shown first because every recommendation on the
+    // Optimizations page is derived from it — if something here is wrong,
+    // the advice will be too, and the user should be able to see that.
+    {
+        const optim::SystemInventory& inv = m_optimizations.Inventory();
+        ImGui::Dummy(ImVec2(0, 12));
+        ImGui::BeginChild("machine", ImVec2(0, 108.0f), true);
+
+        NasakiUI::SectionLabel("ROZPOZNANÝ POČÍTAČ");
+        ImGui::Dummy(ImVec2(0, 4));
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+
+        std::string os = inv.osProductName.empty() ? "Windows" : inv.osProductName;
+        if (!inv.osDisplayVersion.empty()) os += " " + inv.osDisplayVersion;
+        if (inv.osBuild > 0) os += " (build " + std::to_string(inv.osBuild) + ")";
+
+        ImGui::TextWrapped("%s  •  %s", os.c_str(),
+            inv.isLaptop ? (inv.onBattery ? "notebook, na batérii" : "notebook, v sieti")
+                         : "stolný počítač");
+
+        std::string cpu = inv.cpuName.empty() ? "procesor neznámy" : inv.cpuName;
+        cpu += "  •  " + std::to_string(inv.logicalProcessors) + " vlákien";
+        if (inv.physicalCores > 0) cpu += " / " + std::to_string(inv.physicalCores) + " jadier";
+        cpu += "  •  " + optim::FormatBytes(inv.totalPhysicalBytes) + " RAM";
+        ImGui::TextWrapped("%s", cpu.c_str());
+
+        std::string gpu = inv.gpuName.empty() ? "grafika neznáma" : inv.gpuName;
+        if (inv.displayRefreshHz > 0)
+        {
+            gpu += "  •  " + std::to_string(inv.displayWidth) + "x" +
+                   std::to_string(inv.displayHeight) + " @ " +
+                   std::to_string(inv.displayRefreshHz) + " Hz";
+            if (inv.DisplayBelowItsRefresh())
+            {
+                gpu += " (displej zvláda " + std::to_string(inv.displayMaxRefreshHz) + " Hz)";
+            }
+        }
+        ImGui::TextWrapped("%s", gpu.c_str());
+        ImGui::PopStyleColor();
+
+        ImGui::EndChild();
+        ImGui::Dummy(ImVec2(0, 8));
+    }
 
     // No real temperature sensor available (see SystemStats.h), so this is
     // a load-based proxy: sustained high CPU/GPU on a laptop (heuristically
@@ -906,6 +952,8 @@ void App::DrawOptimizationsView()
     int clickedTab = NasakiUI::TabBar("opttabs", kTabs, kTabCount, m_optCategoryTab);
     if (clickedTab >= 0) m_optCategoryTab = clickedTab;
     ImGui::Dummy(ImVec2(0, 14));
+
+    DrawProfileStrip();
 
     NasakiUI::SearchField("##optsearch", "Hľadať nastavenie...", m_optSearch, sizeof(m_optSearch), 280.0f);
     ImGui::SameLine(0, 12);
@@ -1590,6 +1638,207 @@ void App::DrawStorageView()
         ImGui::PopID();
         ImGui::Dummy(ImVec2(0, 10));
     }
+}
+
+void App::DrawProfileStrip()
+{
+    const std::vector<optim::Profile>& profiles = m_optimizations.Profiles();
+    if (profiles.empty()) return;
+
+    NasakiUI::SectionLabel("PROFILY");
+    ImGui::Dummy(ImVec2(0, 6));
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+    ImGui::TextWrapped(
+        "Profil je len pomenovaná skupina nastavení nižšie. Nič navyše nerobí a každé "
+        "nastavenie sa použije samostatne, so svojou vlastnou zálohou.");
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, 8));
+
+    for (size_t i = 0; i < profiles.size(); i++)
+    {
+        if (i > 0) ImGui::SameLine(0, 10);
+        ImGui::PushID((int)i);
+        bool open = m_previewProfileId == profiles[i].id;
+        if (ImGui::Button(profiles[i].name.c_str(), ImVec2(0, 36)))
+        {
+            // Selecting a profile shows what it would change; it never
+            // applies anything on its own.
+            m_previewProfileId = open ? std::string() : profiles[i].id;
+        }
+        ImGui::PopID();
+    }
+
+    if (!m_previewProfileId.empty())
+    {
+        const optim::Profile* selected = nullptr;
+        for (const optim::Profile& profile : profiles)
+        {
+            if (profile.id == m_previewProfileId) selected = &profile;
+        }
+
+        if (selected)
+        {
+            ImGui::Dummy(ImVec2(0, 10));
+            ImGui::BeginChild("profilepreview", ImVec2(0, 260.0f), true);
+
+            ImGui::PushFont(NasakiFonts::Heading());
+            ImGui::TextUnformatted(selected->name.c_str());
+            ImGui::PopFont();
+
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+            ImGui::TextWrapped("%s", selected->description.c_str());
+            ImGui::PopStyleColor();
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::TextWrapped("%s", selected->suitedFor.c_str());
+            ImGui::PopStyleColor();
+            ImGui::Dummy(ImVec2(0, 8));
+
+            std::vector<optim::Service::ProfileStep> steps =
+                m_optimizations.PreviewProfile(m_previewProfileId);
+
+            int applicable = 0;
+            ImGui::BeginChild("steps", ImVec2(0, 120.0f), true);
+            for (const optim::Service::ProfileStep& step : steps)
+            {
+                const char* status = "sa zmení";
+                ImVec4 color = NasakiColors::InkDim();
+                if (!step.supported)
+                {
+                    status = "nedostupné na tomto systéme";
+                    color = NasakiColors::InkFaint();
+                }
+                else if (step.currentState == optim::State::Applied)
+                {
+                    status = "už je použité";
+                    color = NasakiColors::Ok();
+                }
+                else
+                {
+                    applicable++;
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextWrapped("%s — %s (%s)", step.title.c_str(), status,
+                    step.changeSummary.c_str());
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndChild();
+
+            ImGui::Dummy(ImVec2(0, 6));
+            if (applicable == 0)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+                ImGui::TextUnformatted("Tento profil už nemá čo zmeniť.");
+                ImGui::PopStyleColor();
+            }
+            else
+            {
+                std::string label = "Použiť " + std::to_string(applicable) + " nastavení";
+                if (ImGui::Button(label.c_str(), ImVec2(240.0f, 36.0f)))
+                {
+                    m_optimizations.ApplyProfileAsync(m_previewProfileId);
+                }
+            }
+            ImGui::SameLine(0, 10);
+            if (ImGui::Button("Zavrieť", ImVec2(120.0f, 36.0f)))
+            {
+                m_previewProfileId.clear();
+            }
+
+            ImGui::EndChild();
+        }
+    }
+
+    ImGui::Dummy(ImVec2(0, 16));
+}
+
+void App::DrawBackupsView()
+{
+    DrawPageTitle("Zálohy a história",
+        "Každá zmena si pred zápisom uložila pôvodnú hodnotu. Tu ich vidíš a vieš vrátiť.");
+    ImGui::Dummy(ImVec2(0, 18));
+
+    int backedUp = m_optimizations.BackedUpCount();
+    ImGui::Text("%d nastavení má uloženú pôvodnú hodnotu.", backedUp);
+    ImGui::Dummy(ImVec2(0, 10));
+
+    if (backedUp > 0)
+    {
+        if (ImGui::Button("Vrátiť všetko späť", ImVec2(220.0f, 38.0f)))
+        {
+            m_optimizations.RestoreEverythingAsync();
+        }
+        ImGui::SameLine(0, 12);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10);
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+        ImGui::TextUnformatted("Každé nastavenie sa vráti a overí zvlášť.");
+        ImGui::PopStyleColor();
+    }
+
+    if (std::optional<optim::Service::Outcome> outcome = m_optimizations.LastOutcome())
+    {
+        if (outcome->action == "restore-all" || outcome->action == "profile-apply")
+        {
+            ImGui::Dummy(ImVec2(0, 10));
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                outcome->success ? NasakiColors::Ok() : NasakiColors::Warn());
+            ImGui::TextWrapped("%s", outcome->message.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+
+    ImGui::Dummy(ImVec2(0, 18));
+    NasakiUI::SectionLabel("ULOŽENÉ PÔVODNÉ HODNOTY");
+    ImGui::Dummy(ImVec2(0, 6));
+
+    std::vector<optim::BackupEntry> entries = m_optimizations.BackupEntries();
+    if (entries.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+        ImGui::TextUnformatted("Zatiaľ žiadne — Nasaki nič nezmenil.");
+        ImGui::PopStyleColor();
+    }
+    else
+    {
+        ImGui::BeginChild("backups", ImVec2(0, 190.0f), true);
+        for (const optim::BackupEntry& entry : entries)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+            // "nenastavené" is the meaningful case: restoring deletes the
+            // value rather than writing a zero.
+            ImGui::TextWrapped("%s / %s — pôvodne %s   (%s)",
+                entry.optimizationId.c_str(), entry.valueKey.c_str(),
+                entry.original.existed ? "malo hodnotu" : "nenastavené",
+                entry.appliedAtUtc.c_str());
+            ImGui::PopStyleColor();
+        }
+        ImGui::EndChild();
+    }
+
+    ImGui::Dummy(ImVec2(0, 18));
+    NasakiUI::SectionLabel("HISTÓRIA ZMIEN");
+    ImGui::Dummy(ImVec2(0, 6));
+
+    std::vector<optim::BackupStore::HistoryRecord> history = m_optimizations.History();
+    if (history.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+        ImGui::TextUnformatted("Zatiaľ prázdna.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    ImGui::BeginChild("history", ImVec2(0, 0), true);
+    for (size_t i = history.size(); i > 0; i--)
+    {
+        const optim::BackupStore::HistoryRecord& record = history[i - 1];
+        ImGui::PushStyleColor(ImGuiCol_Text,
+            record.success ? NasakiColors::InkDim() : NasakiColors::Danger());
+        ImGui::TextWrapped("%s  %s  %s — %s", record.timestampUtc.c_str(),
+            record.action.c_str(), record.optimizationId.c_str(), record.message.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndChild();
 }
 
 void App::DrawGamesView()

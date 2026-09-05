@@ -24,6 +24,7 @@ enum class AppView
     Startup,
     Power,
     Storage,
+    Backups,
     Games,
     Settings,
 };
@@ -56,6 +57,8 @@ private:
     void DrawStartupView();
     void DrawPowerView();
     void DrawStorageView();
+    void DrawBackupsView();
+    void DrawProfileStrip();
     void DrawGamesView();
     void DrawSettingsView();
     void RescanGameLibrary();
@@ -134,7 +137,9 @@ private:
     optim::Service m_optimizations;
     int m_optCategoryTab = 0;
     char m_optSearch[64] = "";
-    int m_optSort = 0; // 0 = by category, 1 = by name, 2 = applied first
+    int m_optSort = 0;
+    // 0 = by category, 1 = by name, 2 = applied first
+    std::string m_previewProfileId; // profile whose exact changes are being shown
     std::string m_expandedOptId;
     float m_autoDetectTimer = 0.0f; // throttles the auto-detect process scan
 

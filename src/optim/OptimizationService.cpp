@@ -11,6 +11,7 @@ namespace optim
 
         m_backups.Load();
         m_catalog = BuildCatalog(&m_backups, m_inventory);
+        m_profiles = BuildProfiles(m_inventory);
 
         m_states.resize(m_catalog.size());
         m_busy.assign(m_catalog.size(), false);
@@ -379,6 +380,191 @@ namespace optim
             m_lastOutcome = Outcome{ targetId, "storage-clean", error.ok(), message };
             m_storageBusy.store(false);
         });
+    }
+
+    std::vector<Service::ProfileStep> Service::PreviewProfile(const std::string& profileId) const
+    {
+        std::vector<ProfileStep> steps;
+
+        const Profile* profile = nullptr;
+        for (const Profile& candidate : m_profiles)
+        {
+            if (candidate.id == profileId) profile = &candidate;
+        }
+        if (!profile) return steps;
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const std::string& id : profile->optimizationIds)
+        {
+            for (size_t i = 0; i < m_catalog.size(); i++)
+            {
+                if (m_catalog[i]->info().id != id) continue;
+
+                ProfileStep step;
+                step.title = m_catalog[i]->info().title;
+                step.changeSummary = m_catalog[i]->info().changeSummary;
+                step.currentState = m_states[i].state;
+                step.supported = m_states[i].state != State::Unsupported;
+                steps.push_back(step);
+            }
+        }
+        return steps;
+    }
+
+    void Service::ApplyProfileAsync(const std::string& profileId)
+    {
+        const Profile* profile = nullptr;
+        for (const Profile& candidate : m_profiles)
+        {
+            if (candidate.id == profileId) profile = &candidate;
+        }
+        if (!profile) return;
+
+        std::vector<std::string> ids = profile->optimizationIds;
+        std::string name = profile->name;
+
+        m_worker->Enqueue([this, ids, name, profileId]() {
+            int applied = 0;
+            int skipped = 0;
+            std::vector<std::string> failures;
+
+            for (const std::string& id : ids)
+            {
+                Optimization* target = Find(id);
+                if (!target) continue;
+
+                size_t index = 0;
+                bool located = false;
+                for (size_t i = 0; i < m_catalog.size(); i++)
+                {
+                    if (m_catalog[i].get() == target) { index = i; located = true; break; }
+                }
+                if (!located) continue;
+
+                if (!target->Supported())
+                {
+                    skipped++;
+                    continue;
+                }
+
+                // Same path as a single card: capture, write, read back.
+                Error error = target->Apply();
+                Status status = target->Read();
+                if (!error.ok())
+                {
+                    status.state = State::Failed;
+                    status.lastError = error;
+                    failures.push_back(target->info().title);
+                }
+                else
+                {
+                    applied++;
+                }
+
+                m_backups.RecordHistory(id, "apply", error.ok(),
+                    error.ok() ? "Použité v profile " + name : error.message);
+
+                std::lock_guard<std::mutex> lock(m_mutex);
+                PendingResult result;
+                result.index = index;
+                result.status = status;
+                m_pending.push_back(result);
+                m_hasBackup[index] = m_backups.Has(id);
+            }
+            m_backups.Save();
+
+            // The message states what actually happened, including the parts
+            // that did not: a profile is never reported as wholly applied
+            // when some of it failed or was unsupported.
+            std::string message = "Profil " + name + ": použitých " + std::to_string(applied) +
+                                  " z " + std::to_string((int)ids.size()) + " nastavení.";
+            if (skipped > 0)
+            {
+                message += " " + std::to_string(skipped) +
+                           " nie je na tomto systéme dostupných.";
+            }
+            if (!failures.empty())
+            {
+                message += " Zlyhalo: ";
+                for (size_t i = 0; i < failures.size(); i++)
+                {
+                    if (i > 0) message += ", ";
+                    message += failures[i];
+                }
+                message += ".";
+            }
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_lastOutcome = Outcome{ profileId, "profile-apply", failures.empty(), message };
+        });
+    }
+
+    void Service::RestoreEverythingAsync()
+    {
+        m_worker->Enqueue([this]() {
+            int restored = 0;
+            std::vector<std::string> failures;
+
+            for (size_t i = 0; i < m_catalog.size(); i++)
+            {
+                const std::string& id = m_catalog[i]->info().id;
+                if (!m_backups.Has(id)) continue;
+
+                Error error = m_catalog[i]->Restore();
+                Status status = m_catalog[i]->Read();
+                if (!error.ok())
+                {
+                    status.state = State::Failed;
+                    status.lastError = error;
+                    failures.push_back(m_catalog[i]->info().title);
+                }
+                else
+                {
+                    restored++;
+                }
+
+                m_backups.RecordHistory(id, "restore", error.ok(),
+                    error.ok() ? "Obnovené hromadným vrátením." : error.message);
+
+                std::lock_guard<std::mutex> lock(m_mutex);
+                PendingResult result;
+                result.index = i;
+                result.status = status;
+                m_pending.push_back(result);
+                m_hasBackup[i] = m_backups.Has(id);
+            }
+            m_backups.Save();
+
+            std::string message = "Vrátených " + std::to_string(restored) + " nastavení.";
+            if (!failures.empty())
+            {
+                message += " Nepodarilo sa: ";
+                for (size_t i = 0; i < failures.size(); i++)
+                {
+                    if (i > 0) message += ", ";
+                    message += failures[i];
+                }
+                message += ".";
+            }
+            if (restored == 0 && failures.empty())
+            {
+                message = "Nemáme žiadne zálohy — Nasaki zatiaľ nič nezmenil.";
+            }
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_lastOutcome = Outcome{ "all", "restore-all", failures.empty(), message };
+        });
+    }
+
+    int Service::BackedUpCount() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        int count = 0;
+        for (bool has : m_hasBackup)
+        {
+            if (has) count++;
+        }
+        return count;
     }
 
     int Service::RecommendedCount() const
