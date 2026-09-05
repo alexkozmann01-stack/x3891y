@@ -13,11 +13,17 @@ namespace NasakiColors
 {
     ImVec4 Accent();
     ImVec4 Accent2();
+    ImVec4 Pink();
     ImVec4 Ok();
+    ImVec4 Warn();
     ImVec4 Danger();
+    ImVec4 Ink();
     ImVec4 InkDim();
+    ImVec4 InkFaint();
     ImVec4 Line();
+    ImVec4 BgPanel();
     ImVec4 BgPanel2();
+    ImVec4 BgPanel3();
 
     // U32-packed versions of the above, for ImDrawList calls (which want
     // ImU32, not ImVec4) — same source colors, just already converted.

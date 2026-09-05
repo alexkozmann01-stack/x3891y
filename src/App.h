@@ -13,12 +13,14 @@
 #include "LicenseStore.h"
 
 #include "GameLibrary.h"
+#include "optim/OptimizationService.h"
 
 enum class AppView
 {
     License,
     Dashboard,
     Performance,
+    Optimizations,
     Games,
     Settings,
 };
@@ -47,6 +49,7 @@ private:
     void DrawLicenseView();
     void DrawDashboardView();
     void DrawPerformanceView();
+    void DrawOptimizationsView();
     void DrawGamesView();
     void DrawSettingsView();
     void RescanGameLibrary();
@@ -107,19 +110,26 @@ private:
     float m_boostCountdown = 0.0f;
     std::string m_boostStatus; // last outcome, shown in the session panel
 
-    // Settings (the toggle cards in the Nastavenia view).
-    // Session-scoped optimizations — applied on start, reverted on end.
+    // Session-scoped behaviour. The timer-resolution and working-set
+    // "optimizations" that used to live here were removed: timeBeginPeriod
+    // stopped affecting other processes in Windows 10 2004 (so it could not
+    // help a game), and trimming working sets just forces pages to be read
+    // back in. Both are documented in optim/Catalog.cpp's exclusion list.
     bool m_boostGamePriority = true;
     bool m_throttleBackground = true;
     bool m_highPerformancePower = true;
-    bool m_highResolutionTimer = true;
-    bool m_trimBackgroundMemory = true;
-    // Persistent / app behaviour.
+    // App behaviour.
     bool m_overheatWarning = true;
     bool m_autoStartSession = false;
     bool m_startWithWindows = false;
-    bool m_gameDvrDisabled = false; // mirrors the actual HKCU value
-    bool m_gameModeEnabled = true;  // mirrors the actual HKCU value
+
+    // Windows settings now live in the optimization catalog, which owns
+    // their state, backups and verification.
+    optim::Service m_optimizations;
+    int m_optCategoryTab = 0;
+    char m_optSearch[64] = "";
+    int m_optSort = 0; // 0 = by category, 1 = by name, 2 = applied first
+    std::string m_expandedOptId;
     float m_autoDetectTimer = 0.0f; // throttles the auto-detect process scan
 
     // Installed-game library (scanned off-thread; see RescanGameLibrary).

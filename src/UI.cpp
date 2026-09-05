@@ -280,6 +280,51 @@ namespace NasakiUI
         return changed;
     }
 
+    int TabBar(const char* id, const char* const* labels, int count, int active)
+    {
+        int clicked = -1;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImGui::PushID(id);
+
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0) ImGui::SameLine(0, 6);
+
+            ImVec2 textSize = ImGui::CalcTextSize(labels[i]);
+            ImVec2 size(textSize.x + 28.0f, 38.0f);
+            ImVec2 p0 = ImGui::GetCursorScreenPos();
+            ImVec2 p1(p0.x + size.x, p0.y + size.y);
+
+            ImGui::PushID(i);
+            ImGui::InvisibleButton("tab", size);
+            bool hovered = ImGui::IsItemHovered();
+            if (ImGui::IsItemClicked()) clicked = i;
+
+            bool isActive = (i == active);
+            float t = AnimateTo(ImGui::GetID("tabanim"), isActive ? 1.0f : 0.0f, 16.0f);
+
+            if (hovered && !isActive)
+            {
+                dl->AddRectFilled(p0, p1, Col(IM_COL32(255, 255, 255, 10)), 8.0f);
+            }
+            ImU32 textCol = Col(Lerp(IM_COL32(154, 147, 176, 255), IM_COL32(242, 240, 248, 255), t));
+            dl->AddText(ImVec2(p0.x + 14.0f, p0.y + (size.y - textSize.y) * 0.5f), textCol, labels[i]);
+
+            // Underline marks the active tab, growing from the centre.
+            if (t > 0.01f)
+            {
+                float half = (size.x * 0.5f - 10.0f) * t;
+                float cx = (p0.x + p1.x) * 0.5f;
+                dl->AddRectFilled(ImVec2(cx - half, p1.y - 2.0f), ImVec2(cx + half, p1.y),
+                    Col(IM_COL32(139, 92, 246, 255), t), 1.0f);
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::PopID();
+        return clicked;
+    }
+
     float BadgeAt(ImDrawList* dl, ImVec2 pos, const char* text, ImU32 fg, ImU32 bg)
     {
         ImVec2 textSize = ImGui::CalcTextSize(text);
@@ -485,6 +530,245 @@ namespace NasakiUI
             }
         }
 
+        ImGui::SetCursorPos(afterCursor);
+        return action;
+    }
+    // ---- optimization card -------------------------------------------
+
+    namespace
+    {
+        struct StateVisual
+        {
+            const char* label;
+            ImU32 fg;
+            ImU32 bg;
+        };
+
+        StateVisual VisualFor(OptState state)
+        {
+            switch (state)
+            {
+            case OptState::Applied:
+                return { "Použité", IM_COL32(74, 217, 145, 255), IM_COL32(74, 217, 145, 34) };
+            case OptState::NotApplied:
+                return { "Nepoužité", IM_COL32(154, 147, 176, 255), IM_COL32(154, 147, 176, 28) };
+            case OptState::Unsupported:
+                return { "Nepodporované", IM_COL32(107, 100, 130, 255), IM_COL32(107, 100, 130, 28) };
+            case OptState::PendingRestart:
+                return { "Čaká na reštart", IM_COL32(245, 177, 76, 255), IM_COL32(245, 177, 76, 34) };
+            case OptState::Failed:
+                return { "Zlyhalo", IM_COL32(248, 113, 113, 255), IM_COL32(248, 113, 113, 34) };
+            case OptState::Unknown:
+            default:
+                return { "Zisťujem...", IM_COL32(107, 100, 130, 255), IM_COL32(107, 100, 130, 24) };
+            }
+        }
+    }
+
+    float OptCardHeight(bool expanded)
+    {
+        return expanded ? 340.0f : 196.0f;
+    }
+
+    OptCardAction OptCard(const OptCardModel& model, float width, bool expanded, float alpha)
+    {
+        const float height = OptCardHeight(expanded);
+        const float pad = 20.0f;
+        OptCardAction action = OptCardAction::None;
+
+        ImVec2 localStart = ImGui::GetCursorPos();
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImVec2 p1(p0.x + width, p0.y + height);
+
+        ImGui::PushID(model.id);
+
+        // Background pane first; interactive controls are placed on top.
+        ImGui::InvisibleButton("card", ImVec2(width, height));
+        bool cardHovered = ImGui::IsItemHovered();
+        ImVec2 afterCursor = ImGui::GetCursorPos();
+
+        float hoverT = AnimateTo(ImGui::GetID("hover"), cardHovered ? 1.0f : 0.0f, 12.0f);
+        bool applied = model.state == OptState::Applied;
+        float appliedT = AnimateTo(ImGui::GetID("applied"), applied ? 1.0f : 0.0f, 16.0f);
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImU32 bg = Lerp(IM_COL32(20, 17, 34, 255), IM_COL32(27, 23, 44, 255), hoverT);
+        ImU32 border = Lerp(IM_COL32(42, 36, 64, 255), IM_COL32(139, 92, 246, 150), appliedT);
+        dl->AddRectFilled(p0, p1, Col(bg, alpha), 14.0f);
+        dl->AddRect(p0, p1, Col(border, alpha), 14.0f, 0, 1.0f);
+
+        StateVisual visual = VisualFor(model.state);
+
+        // Header: title on the left, live-state pill on the right.
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * alpha);
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + pad));
+        ImGui::PushFont(NasakiFonts::Heading());
+        ImGui::PushTextWrapPos(localStart.x + width - pad - 96.0f);
+        ImGui::TextUnformatted(model.title);
+        ImGui::PopTextWrapPos();
+        ImGui::PopFont();
+
+        {
+            ImVec2 pillSize = ImGui::CalcTextSize(visual.label);
+            float pillW = pillSize.x + 18.0f;
+            BadgeAt(dl, ImVec2(p1.x - pad - pillW, p0.y + pad + 2.0f), visual.label,
+                Col(visual.fg, alpha), Col(visual.bg, alpha));
+        }
+
+        // Description.
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + pad + 34.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::PushTextWrapPos(localStart.x + width - pad);
+        ImGui::TextUnformatted(model.description);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+
+        // Requirement chips: benefit, evidence, admin/restart when relevant.
+        float chipY = p0.y + pad + 88.0f;
+        float chipX = p0.x + pad;
+        auto chip = [&](const char* text, ImU32 fg, ImU32 bgCol) {
+            if (!text || !*text) return;
+            float w = ImGui::CalcTextSize(text).x + 18.0f;
+            if (chipX + w > p1.x - pad) return; // don't spill outside the card
+            BadgeAt(dl, ImVec2(chipX, chipY), text, Col(fg, alpha), Col(bgCol, alpha));
+            chipX += w + 6.0f;
+        };
+        chip(model.benefit, IM_COL32(167, 139, 250, 255), IM_COL32(139, 92, 246, 34));
+        chip(model.evidence, IM_COL32(154, 147, 176, 255), IM_COL32(154, 147, 176, 24));
+        if (model.requiresAdmin)   chip("Správca", IM_COL32(245, 177, 76, 255), IM_COL32(245, 177, 76, 30));
+        if (model.requiresRestart) chip("Reštart", IM_COL32(245, 177, 76, 255), IM_COL32(245, 177, 76, 30));
+
+        // Expanded detail pane.
+        if (expanded)
+        {
+            float detailY = p0.y + pad + 122.0f;
+            dl->AddLine(ImVec2(p0.x + pad, detailY - 8.0f), ImVec2(p1.x - pad, detailY - 8.0f),
+                Col(IM_COL32(42, 36, 64, 255), alpha));
+
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, detailY));
+            ImGui::PushTextWrapPos(localStart.x + width - pad);
+
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+            ImGui::TextUnformatted(model.rationale);
+            ImGui::PopStyleColor();
+
+            if (model.tradeoffs && *model.tradeoffs)
+            {
+                ImGui::Dummy(ImVec2(0, 6));
+                ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Warn());
+                ImGui::TextUnformatted(model.tradeoffs);
+                ImGui::PopStyleColor();
+            }
+            if (model.changeSummary && *model.changeSummary)
+            {
+                ImGui::Dummy(ImVec2(0, 6));
+                ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+                ImGui::Text("Zmení: %s", model.changeSummary);
+                ImGui::PopStyleColor();
+            }
+            if (model.stateDetail && *model.stateDetail)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+                ImGui::Text("Teraz: %s", model.stateDetail);
+                ImGui::PopStyleColor();
+            }
+            ImGui::PopTextWrapPos();
+        }
+
+        // Error line sits just above the controls so a failure is impossible
+        // to miss.
+        if (model.state == OptState::Failed && model.errorMessage && *model.errorMessage)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p1.y - pad - 62.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Danger());
+            ImGui::PushTextWrapPos(localStart.x + width - pad);
+            ImGui::TextUnformatted(model.errorMessage);
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        }
+        else if (model.state == OptState::Unsupported && model.stateDetail && *model.stateDetail)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p1.y - pad - 62.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::PushTextWrapPos(localStart.x + width - pad);
+            ImGui::TextUnformatted(model.stateDetail);
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        }
+        ImGui::PopStyleVar();
+
+        // Controls row.
+        float rowY = p1.y - pad - 32.0f;
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, rowY));
+
+        auto smallButton = [&](const char* label, bool enabled, ImU32 fg, ImU32 fill) {
+            ImVec2 textSize = ImGui::CalcTextSize(label);
+            ImVec2 size(textSize.x + 26.0f, 32.0f);
+            ImVec2 b0 = ImGui::GetCursorScreenPos();
+            ImVec2 b1(b0.x + size.x, b0.y + size.y);
+
+            ImGui::PushID(label);
+            ImGui::InvisibleButton("btn", size);
+            bool hovered = enabled && ImGui::IsItemHovered();
+            bool pressed = enabled && ImGui::IsItemClicked();
+            float t = AnimateTo(ImGui::GetID("t"), hovered ? 1.0f : 0.0f, 16.0f);
+            ImGui::PopID();
+
+            float a = enabled ? alpha : alpha * 0.4f;
+            dl->AddRectFilled(b0, b1, Col(Lerp(fill, fill | 0x30000000, t), a), 9.0f);
+            dl->AddText(ImVec2(b0.x + 13.0f, b0.y + (size.y - textSize.y) * 0.5f), Col(fg, a), label);
+            return pressed;
+        };
+
+        bool controllable = model.state == OptState::Applied ||
+                            model.state == OptState::NotApplied ||
+                            model.state == OptState::Failed;
+
+        if (model.busy)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, rowY + 7.0f));
+            ImGui::TextUnformatted("Pracujem...");
+            ImGui::PopStyleColor();
+        }
+        else if (controllable)
+        {
+            if (applied)
+            {
+                if (smallButton("Obnoviť", model.hasBackup,
+                        IM_COL32(242, 240, 248, 255), IM_COL32(42, 36, 64, 255)))
+                {
+                    action = OptCardAction::Restore;
+                }
+            }
+            else
+            {
+                if (smallButton("Použiť", true,
+                        IM_COL32(255, 255, 255, 255), IM_COL32(139, 92, 246, 210)))
+                {
+                    action = OptCardAction::Apply;
+                }
+            }
+
+            ImGui::SameLine(0, 8);
+            if (smallButton(expanded ? "Skryť detaily" : "Detaily", true,
+                    IM_COL32(154, 147, 176, 255), IM_COL32(255, 255, 255, 10)))
+            {
+                action = OptCardAction::ToggleDetails;
+            }
+        }
+        else
+        {
+            // Unsupported/unknown: no control that pretends to work.
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, rowY + 7.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::TextUnformatted(model.state == OptState::Unsupported
+                ? "Na tomto systéme nedostupné"
+                : "Zisťujem stav...");
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::PopID();
         ImGui::SetCursorPos(afterCursor);
         return action;
     }

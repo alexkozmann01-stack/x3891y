@@ -30,6 +30,12 @@ add_executable(NasakiClient WIN32
     src/Autostart.cpp
     src/WinTweaks.cpp
     src/GameLibrary.cpp
+
+    src/optim/RegistryValue.cpp
+    src/optim/RegistryOptimization.cpp
+    src/optim/BackupStore.cpp
+    src/optim/Catalog.cpp
+    src/optim/OptimizationService.cpp
     src/LicenseStore.cpp
 
     ${IMGUI_DIR}/imgui.cpp
@@ -70,3 +76,15 @@ target_compile_definitions(NasakiClient PRIVATE
 # NasakiClient.exe is fully self-contained — both UI fonts are compiled in
 # (src/ManropeFont.h, src/UnboundedFont.h), so nothing needs to be copied
 # next to the binary after building.
+
+# Tests for the optimization framework. Separate executable so the app has no
+# test dependency: cmake --build build --config Release --target NasakiTests
+add_executable(NasakiTests
+    tests/OptimTests.cpp
+    src/optim/RegistryValue.cpp
+    src/optim/RegistryOptimization.cpp
+    src/optim/BackupStore.cpp
+)
+target_include_directories(NasakiTests PRIVATE src third_party/json)
+target_link_libraries(NasakiTests PRIVATE advapi32.lib shell32.lib)
+target_compile_definitions(NasakiTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)

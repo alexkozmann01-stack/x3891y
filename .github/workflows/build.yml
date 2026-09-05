@@ -21,6 +21,11 @@ jobs:
           cmake --build build --config Release 2>&1 | Tee-Object -FilePath build.log
           exit $LASTEXITCODE
 
+      # The framework tests write to a scratch HKCU key and a temp file, so
+      # they can run unelevated on the runner like they would on a user's PC.
+      - name: Run optimization framework tests
+        run: .\build\Release\NasakiTests.exe
+
       # Downloading raw job logs needs an authenticated token, but check-run
       # annotations are readable on a public repo without one — so echo each
       # compiler diagnostic as an annotation to make failures diagnosable

@@ -113,18 +113,21 @@ namespace
     }
 }
 
-App::App(HWND hwnd) : m_hwnd(hwnd)
+// m_optimizations is declared before m_worker but only stores the pointer —
+// it never touches the worker during construction, and because m_worker is
+// declared last it is destroyed first, so its thread is stopped before the
+// service those jobs capture goes away.
+App::App(HWND hwnd) : m_hwnd(hwnd), m_optimizations(&m_worker)
 {
     ApplyNasakiTheme();
     m_isLaptop = SystemInfo::IsLaptop();
     m_startWithWindows = Autostart::IsEnabled();
-    m_gameDvrDisabled = WinTweaks::IsGameDvrDisabled();
-    m_gameModeEnabled = WinTweaks::IsGameModeEnabled();
     m_device = LicenseStore::Load();
     if (m_device.has_value())
     {
         m_view = AppView::Dashboard;
     }
+    m_optimizations.RefreshAsync();
 }
 
 // ---------------------------------------------------------------------------
@@ -196,22 +199,13 @@ void App::ApplySessionOptimizations()
     {
         WinTweaks::BeginHighPerformancePower();
     }
-    if (m_highResolutionTimer)
-    {
-        WinTweaks::BeginHighResolutionTimer();
-    }
-    if (m_trimBackgroundMemory)
-    {
-        ProcessBoost::TrimBackgroundMemory();
-    }
 }
 
 void App::RevertSessionOptimizations()
 {
     // Unconditional: a toggle switched off mid-session must not strand the
-    // machine on a power scheme or timer period we raised.
+    // machine on a power scheme we changed.
     WinTweaks::EndHighPerformancePower();
-    WinTweaks::EndHighResolutionTimer();
 }
 
 std::string App::BuildBoostStatus(const std::string& gameName, bool boosted, int throttledCount) const
@@ -450,6 +444,8 @@ void App::Update(float deltaSeconds)
         }
     }
 
+    m_optimizations.Pump();
+
     m_viewFade += deltaSeconds * 5.0f;
     if (m_viewFade > 1.0f) m_viewFade = 1.0f;
 
@@ -535,6 +531,7 @@ void App::Draw()
         {
             case AppView::Dashboard:   DrawDashboardView();   break;
             case AppView::Performance: DrawPerformanceView();break;
+            case AppView::Optimizations: DrawOptimizationsView(); break;
             case AppView::Games:       DrawGamesView();       break;
             case AppView::Settings:    DrawSettingsView();    break;
             default: break;
@@ -610,6 +607,7 @@ void App::DrawSidebar()
     ImGui::Dummy(ImVec2(0, 4));
 
     navItem("nav_games", "Hry", ICON_NAV_GAMES, AppView::Games);
+    navItem("nav_opt", "Optimalizácie", ICON_BOLT, AppView::Optimizations);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("OPTIMALIZÁCIE");
@@ -860,6 +858,192 @@ void App::DrawPageTitle(const char* title, const char* subtitle)
     }
 }
 
+void App::DrawOptimizationsView()
+{
+    DrawPageTitle("Optimalizácie", "Overené, vratné nastavenia Windows. Každá zmena si pamätá pôvodnú hodnotu.");
+    ImGui::Dummy(ImVec2(0, 18));
+
+    static const char* kTabs[] = { "Všetko", "Všeobecné", "Hranie", "Súkromie" };
+    static const optim::Category kTabCategory[] = {
+        optim::Category::General, // unused for index 0
+        optim::Category::General,
+        optim::Category::Gaming,
+        optim::Category::Privacy,
+    };
+
+    int clickedTab = NasakiUI::TabBar("opttabs", kTabs, 4, m_optCategoryTab);
+    if (clickedTab >= 0) m_optCategoryTab = clickedTab;
+    ImGui::Dummy(ImVec2(0, 14));
+
+    NasakiUI::SearchField("##optsearch", "Hľadať nastavenie...", m_optSearch, sizeof(m_optSearch), 280.0f);
+    ImGui::SameLine(0, 12);
+    ImGui::SetNextItemWidth(190.0f);
+    const char* sortLabels[] = { "Zoradiť: kategória", "Zoradiť: názov", "Zoradiť: použité" };
+    ImGui::Combo("##optsort", &m_optSort, sortLabels, 3);
+    ImGui::SameLine(0, 12);
+    if (ImGui::Button(ICON_ROTATE "  Znova zistiť", ImVec2(0, 38)))
+    {
+        m_optimizations.RefreshAsync();
+    }
+    ImGui::SameLine(0, 12);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10);
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+    if (m_optimizations.Scanning())
+    {
+        ImGui::TextUnformatted("Zisťujem aktuálny stav...");
+    }
+    else
+    {
+        ImGui::Text("%d použitých", m_optimizations.AppliedCount());
+    }
+    ImGui::PopStyleColor();
+
+    if (std::optional<optim::Service::Outcome> outcome = m_optimizations.LastOutcome())
+    {
+        ImGui::Dummy(ImVec2(0, 10));
+        ImGui::PushStyleColor(ImGuiCol_Text,
+            outcome->success ? NasakiColors::Ok() : NasakiColors::Danger());
+        ImGui::TextWrapped("%s", outcome->message.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::Dummy(ImVec2(0, 16));
+
+    // Filter and sort into a view list; the service's own order never changes.
+    std::string needle = m_optSearch;
+    std::transform(needle.begin(), needle.end(), needle.begin(),
+        [](unsigned char c) { return (char)std::tolower(c); });
+
+    std::vector<optim::Service::Row> rows = m_optimizations.Rows();
+    std::vector<size_t> visible;
+    visible.reserve(rows.size());
+    for (size_t i = 0; i < rows.size(); i++)
+    {
+        if (m_optCategoryTab != 0 && rows[i].info->category != kTabCategory[m_optCategoryTab])
+        {
+            continue;
+        }
+        if (!needle.empty())
+        {
+            std::string haystack = rows[i].info->title + " " + rows[i].info->description;
+            std::transform(haystack.begin(), haystack.end(), haystack.begin(),
+                [](unsigned char c) { return (char)std::tolower(c); });
+            if (haystack.find(needle) == std::string::npos) continue;
+        }
+        visible.push_back(i);
+    }
+
+    std::sort(visible.begin(), visible.end(), [&](size_t a, size_t b) {
+        if (m_optSort == 1) return rows[a].info->title < rows[b].info->title;
+        if (m_optSort == 2)
+        {
+            bool aApplied = rows[a].status.state == optim::State::Applied;
+            bool bApplied = rows[b].status.state == optim::State::Applied;
+            if (aApplied != bApplied) return aApplied;
+            return rows[a].info->title < rows[b].info->title;
+        }
+        if (rows[a].info->category != rows[b].info->category)
+        {
+            return (int)rows[a].info->category < (int)rows[b].info->category;
+        }
+        return rows[a].info->title < rows[b].info->title;
+    });
+
+    if (visible.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::TextUnformatted(m_optimizations.Scanning()
+            ? "Načítavam..."
+            : "Nič nezodpovedá filtru.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    const float gap = 16.0f;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    int columns = (int)((avail + gap) / (340.0f + gap));
+    if (columns < 1) columns = 1;
+    if (columns > 3) columns = 3;
+    const float cardWidth = (avail - gap * (columns - 1)) / columns;
+
+    // Rows can differ in height when one card is expanded, so track each
+    // row's tallest card rather than assuming a uniform grid.
+    ImVec2 gridOrigin = ImGui::GetCursorPos();
+    float y = 0.0f;
+    float totalHeight = 0.0f;
+    for (size_t slot = 0; slot < visible.size(); )
+    {
+        float rowHeight = 0.0f;
+        for (int col = 0; col < columns && slot + col < visible.size(); col++)
+        {
+            bool expanded = rows[visible[slot + col]].info->id == m_expandedOptId;
+            rowHeight = (std::max)(rowHeight, NasakiUI::OptCardHeight(expanded));
+        }
+
+        for (int col = 0; col < columns && slot < visible.size(); col++, slot++)
+        {
+            const optim::Service::Row& row = rows[visible[slot]];
+            bool expanded = row.info->id == m_expandedOptId;
+
+            float t = (m_viewFade - (float)slot * 0.035f) / 0.35f;
+            if (t < 0.0f) t = 0.0f;
+            if (t > 1.0f) t = 1.0f;
+
+            ImGui::SetCursorPos(ImVec2(
+                gridOrigin.x + col * (cardWidth + gap),
+                gridOrigin.y + y + (1.0f - t) * 10.0f));
+
+            NasakiUI::OptCardModel model;
+            model.id = row.info->id.c_str();
+            model.title = row.info->title.c_str();
+            model.description = row.info->description.c_str();
+            model.rationale = row.info->rationale.c_str();
+            model.benefit = optim::BenefitLabel(row.info->benefit);
+            model.evidence = optim::EvidenceLabel(row.info->evidence);
+            model.tradeoffs = row.info->tradeoffs.c_str();
+            model.changeSummary = row.info->changeSummary.c_str();
+            model.stateDetail = row.status.detail.c_str();
+            model.errorMessage = row.status.lastError.message.c_str();
+            model.requiresAdmin = row.info->requiresAdmin;
+            model.requiresRestart = row.info->requiresRestart;
+            model.hasBackup = row.hasBackup;
+            model.busy = row.busy;
+
+            switch (row.status.state)
+            {
+            case optim::State::Applied:        model.state = NasakiUI::OptState::Applied; break;
+            case optim::State::NotApplied:     model.state = NasakiUI::OptState::NotApplied; break;
+            case optim::State::Unsupported:    model.state = NasakiUI::OptState::Unsupported; break;
+            case optim::State::PendingRestart: model.state = NasakiUI::OptState::PendingRestart; break;
+            case optim::State::Failed:         model.state = NasakiUI::OptState::Failed; break;
+            default:                           model.state = NasakiUI::OptState::Unknown; break;
+            }
+
+            switch (NasakiUI::OptCard(model, cardWidth, expanded, t))
+            {
+            case NasakiUI::OptCardAction::Apply:
+                m_optimizations.ApplyAsync(row.info->id);
+                break;
+            case NasakiUI::OptCardAction::Restore:
+                m_optimizations.RestoreAsync(row.info->id);
+                break;
+            case NasakiUI::OptCardAction::ToggleDetails:
+                m_expandedOptId = expanded ? std::string() : row.info->id;
+                break;
+            default:
+                break;
+            }
+        }
+
+        y += rowHeight + gap;
+        totalHeight = y;
+    }
+
+    // Claim the grid's footprint with a real item so the parent's content
+    // region grows (a bare cursor move would not).
+    ImGui::SetCursorPos(gridOrigin);
+    ImGui::Dummy(ImVec2(avail, totalHeight > gap ? totalHeight - gap : totalHeight));
+}
+
 void App::DrawGamesView()
 {
     DrawPageTitle("Hry", "Hry nainštalované na tomto počítači.");
@@ -1040,22 +1224,10 @@ void App::DrawSettingsView()
             ? "Prepne Windows na High performance. Na notebooku býva najväčší rozdiel — Balanced parkuje jadrá a drží nízke takty."
             : "Prepne Windows na High performance počas hrania a po skončení vráti pôvodnú schému.",
           &m_highPerformancePower, "Nové" },
-        { "set_timer", ICON_CHIP, "Presnejší časovač",
-          "Zvýši rozlíšenie systémového časovača na 1 ms — niektoré enginy na tom stavajú plynulosť snímkov.",
-          &m_highResolutionTimer, "Nové" },
-        { "set_trim", ICON_LAYERS, "Uvoľniť RAM",
-          "Pred štartom hry vráti systému nevyužitú pamäť aplikácií na pozadí.",
-          &m_trimBackgroundMemory, "Nové" },
     };
 
     // Persistent Windows settings and app behaviour.
     CardDef systemCards[] = {
-        { "set_gamedvr", ICON_LAYERS, "Vypnúť Game DVR",
-          "Vypne nahrávanie Xbox Game Baru na pozadí, ktoré počas hrania ukrajuje výkon.",
-          &m_gameDvrDisabled, "Nové" },
-        { "set_gamemode", ICON_BOLT, "Windows Game Mode",
-          "Necháva Windows uprednostniť hru pred údržbou systému na pozadí.",
-          &m_gameModeEnabled, "Nové" },
         { "set_autostart_session", ICON_CROSSHAIRS, "Detekcia hry",
           "Sleduje spustené procesy a session spustí sám, keď zaznamená známu hru.",
           &m_autoStartSession, nullptr },
@@ -1099,15 +1271,9 @@ void App::DrawSettingsView()
                 // The toggles backed by real system state write through the
                 // moment they're flipped.
                 if (c.value == &m_startWithWindows)      Autostart::SetEnabled(m_startWithWindows);
-                else if (c.value == &m_gameDvrDisabled)  WinTweaks::SetGameDvrDisabled(m_gameDvrDisabled);
-                else if (c.value == &m_gameModeEnabled)  WinTweaks::SetGameModeEnabled(m_gameModeEnabled);
                 else if (c.value == &m_highPerformancePower && !m_highPerformancePower)
                 {
                     WinTweaks::EndHighPerformancePower(); // switched off mid-session
-                }
-                else if (c.value == &m_highResolutionTimer && !m_highResolutionTimer)
-                {
-                    WinTweaks::EndHighResolutionTimer();
                 }
             }
         }

@@ -93,4 +93,40 @@ namespace NasakiUI
     // Dim, small, letter-spaced-looking group label for sidebar sections
     // ("Optimalizácie", "Nástroje").
     void SectionLabel(const char* text);
+
+    // A tab strip with an underline under the active tab. Returns the index
+    // of the tab clicked this frame, or -1.
+    int TabBar(const char* id, const char* const* labels, int count, int active);
+
+    // ---- optimization card -------------------------------------------
+
+    // Everything the card needs to render honestly. State drives the whole
+    // presentation: an unsupported setting shows why and offers no control,
+    // a failed one shows the error, and nothing reads as "on" unless the
+    // service verified it against the live system.
+    enum class OptState { Unknown, Applied, NotApplied, Unsupported, PendingRestart, Failed };
+
+    struct OptCardModel
+    {
+        const char* id = "";
+        const char* title = "";
+        const char* description = "";
+        const char* rationale = "";
+        const char* benefit = "";
+        const char* evidence = "";
+        const char* tradeoffs = "";
+        const char* changeSummary = "";
+        const char* stateDetail = "";   // live value, e.g. "GameDVR_Enabled: 1"
+        const char* errorMessage = "";  // populated when state == Failed
+        OptState state = OptState::Unknown;
+        bool requiresAdmin = false;
+        bool requiresRestart = false;
+        bool hasBackup = false;         // enables Restore
+        bool busy = false;              // an apply/restore is in flight
+    };
+
+    enum class OptCardAction { None, Apply, Restore, ToggleDetails };
+
+    float OptCardHeight(bool expanded);
+    OptCardAction OptCard(const OptCardModel& model, float width, bool expanded, float alpha = 1.0f);
 }

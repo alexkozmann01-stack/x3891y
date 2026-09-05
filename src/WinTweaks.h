@@ -11,7 +11,11 @@
 //     than a value we made up, and flipping the toggle back restores it.
 //
 // Deliberately excluded: anything under HKLM (needs admin), HAGS (needs a
-// reboot), and network stack tweaks (system-wide, easy to make worse).
+// reboot), network stack tweaks (system-wide, easy to make worse), and
+// timeBeginPeriod — Microsoft documents that since Windows 10 2004 it only
+// affects the calling process, so it cannot help a game in another process,
+// and that raising it can reduce overall performance and block CPU power
+// saving.
 namespace WinTweaks
 {
     // ---- session-scoped ----
@@ -22,19 +26,7 @@ namespace WinTweaks
     bool BeginHighPerformancePower();
     void EndHighPerformancePower();
 
-    // timeBeginPeriod(1): finer scheduler/sleep granularity, which some
-    // engines' frame pacing depends on.
-    void BeginHighResolutionTimer();
-    void EndHighResolutionTimer();
-
-    // ---- persistent HKCU toggles ----
-
-    // Xbox Game DVR background recording — a well-known source of overhead
-    // during gameplay.
-    bool IsGameDvrDisabled();
-    void SetGameDvrDisabled(bool disabled);
-
-    // Windows' own Game Mode.
-    bool IsGameModeEnabled();
-    void SetGameModeEnabled(bool enabled);
+    // Game DVR and Game Mode moved into the optimization catalog
+    // (optim/Catalog.cpp), which gives them backup, verification and
+    // rollback instead of a bare registry write.
 }

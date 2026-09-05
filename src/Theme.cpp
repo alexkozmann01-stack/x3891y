@@ -10,17 +10,23 @@ namespace
         return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a);
     }
 
-    // Same palette as :root in index.html / includes/admin_layout.php.
-    const ImVec4 kBg        = RGB(0x06, 0x09, 0x12); // --bg
-    const ImVec4 kBgPanel   = RGB(0x0b, 0x0f, 0x1c); // --bg-panel
-    const ImVec4 kBgPanel2  = RGB(0x0e, 0x14, 0x24); // --bg-panel-2
-    const ImVec4 kLine      = RGB(0x1c, 0x27, 0x40); // --line
-    const ImVec4 kAccent    = RGB(0x2f, 0x7f, 0xfc); // --accent
-    const ImVec4 kAccent2   = RGB(0x7f, 0xd6, 0xff); // --accent-2
-    const ImVec4 kInk       = RGB(0xee, 0xf3, 0xfb); // --ink
-    const ImVec4 kInkDim    = RGB(0x8b, 0x96, 0xb3); // --ink-dim
-    const ImVec4 kDanger    = RGB(0xff, 0x5d, 0x5d); // --danger
-    const ImVec4 kOk        = RGB(0x6b, 0xe3, 0xa3); // --ok
+    // Near-black ground, cards lifted with a violet cast rather than pure
+    // grey, purple as the working accent and pink kept for a single
+    // highlight so it stays an emphasis rather than decoration.
+    const ImVec4 kBg        = RGB(0x07, 0x06, 0x0d); // near-black
+    const ImVec4 kBgPanel   = RGB(0x0e, 0x0c, 0x18); // sidebar / panels
+    const ImVec4 kBgPanel2  = RGB(0x14, 0x11, 0x22); // cards
+    const ImVec4 kBgPanel3  = RGB(0x1b, 0x17, 0x2c); // card hover
+    const ImVec4 kLine      = RGB(0x2a, 0x24, 0x40); // borders
+    const ImVec4 kAccent    = RGB(0x8b, 0x5c, 0xf6); // violet — primary accent
+    const ImVec4 kAccent2   = RGB(0xa7, 0x8b, 0xfa); // lighter violet
+    const ImVec4 kPink      = RGB(0xe8, 0x4d, 0xb8); // restrained highlight
+    const ImVec4 kInk       = RGB(0xf2, 0xf0, 0xf8); // primary text
+    const ImVec4 kInkDim    = RGB(0x9a, 0x93, 0xb0); // secondary text
+    const ImVec4 kInkFaint  = RGB(0x6b, 0x64, 0x82); // tertiary text
+    const ImVec4 kDanger    = RGB(0xf8, 0x71, 0x71);
+    const ImVec4 kWarn      = RGB(0xf5, 0xb1, 0x4c);
+    const ImVec4 kOk        = RGB(0x4a, 0xd9, 0x91);
 }
 
 void ApplyNasakiTheme()
@@ -116,11 +122,17 @@ namespace NasakiColors
 {
     ImVec4 Accent()  { return kAccent; }
     ImVec4 Accent2() { return kAccent2; }
+    ImVec4 Pink()    { return kPink; }
     ImVec4 Ok()      { return kOk; }
+    ImVec4 Warn()    { return kWarn; }
     ImVec4 Danger()  { return kDanger; }
+    ImVec4 Ink()     { return kInk; }
     ImVec4 InkDim()  { return kInkDim; }
+    ImVec4 InkFaint(){ return kInkFaint; }
     ImVec4 Line()    { return kLine; }
+    ImVec4 BgPanel() { return kBgPanel; }
     ImVec4 BgPanel2(){ return kBgPanel2; }
+    ImVec4 BgPanel3(){ return kBgPanel3; }
 
     ImU32 U32(const ImVec4& c) { return ImGui::ColorConvertFloat4ToU32(c); }
 }

@@ -53,10 +53,4 @@ namespace ProcessBoost
     // Restores every priority Begin()/BeginForPid() changed back to what it
     // was before. Safe to call even if nothing was adjusted.
     void End();
-
-    // Trims the working set of the same background allowlist, handing their
-    // idle pages back to the OS before a game starts claiming memory.
-    // Self-healing by design: anything still needed gets paged back in.
-    // Returns how many processes were trimmed.
-    int TrimBackgroundMemory();
 }
