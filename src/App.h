@@ -23,6 +23,7 @@ enum class AppView
     Optimizations,
     Startup,
     Power,
+    Storage,
     Games,
     Settings,
 };
@@ -54,6 +55,7 @@ private:
     void DrawOptimizationsView();
     void DrawStartupView();
     void DrawPowerView();
+    void DrawStorageView();
     void DrawGamesView();
     void DrawSettingsView();
     void RescanGameLibrary();

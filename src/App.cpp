@@ -180,6 +180,15 @@ void App::SetView(AppView view)
     if (m_view == view) return;
     m_view = view;
     m_viewFade = 0.0f; // content fades (and rises) back in
+
+    // Storage analysis walks whole directory trees, so it is done when the
+    // page is first opened rather than on every launch. Once measured, the
+    // numbers stay until the user asks for a recount.
+    if (view == AppView::Storage && m_optimizations.StorageTargets().empty()
+        && !m_optimizations.StorageBusy())
+    {
+        m_optimizations.RefreshStorageAsync();
+    }
 }
 
 void App::RescanGameLibrary()
@@ -537,6 +546,7 @@ void App::Draw()
             case AppView::Optimizations: DrawOptimizationsView(); break;
             case AppView::Startup:     DrawStartupView();     break;
             case AppView::Power:       DrawPowerView();       break;
+            case AppView::Storage:     DrawStorageView();     break;
             case AppView::Games:       DrawGamesView();       break;
             case AppView::Settings:    DrawSettingsView();    break;
             default: break;
@@ -614,6 +624,7 @@ void App::DrawSidebar()
     navItem("nav_opt", "Optimalizácie", ICON_BOLT, AppView::Optimizations);
     navItem("nav_startup", "Po spustení", ICON_LAYERS, AppView::Startup);
     navItem("nav_power", "Napájanie", ICON_POWER, AppView::Power);
+    navItem("nav_storage", "Úložisko", ICON_LAYERS, AppView::Storage);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("KNIŽNICA");
@@ -1397,6 +1408,188 @@ void App::DrawPowerView()
 
     ImGui::SetCursorPos(origin);
     ImGui::Dummy(ImVec2(width, y));
+}
+
+void App::DrawStorageView()
+{
+    DrawPageTitle("Úložisko",
+        "Nasaki maže len to, čo ti najprv ukáže. Osobné priečinky iba meriame.");
+    ImGui::Dummy(ImVec2(0, 18));
+
+    // Free space per fixed drive, straight from the inventory.
+    const optim::SystemInventory& inventory = m_optimizations.Inventory();
+    for (const optim::StorageInfo& drive : inventory.drives)
+    {
+        if (drive.totalBytes == 0) continue;
+
+        float used = 1.0f - (float)((double)drive.freeBytes / (double)drive.totalBytes);
+        ImGui::Text("%s  %s voľných z %s", drive.driveLetter.c_str(),
+            optim::FormatBytes(drive.freeBytes).c_str(),
+            optim::FormatBytes(drive.totalBytes).c_str());
+        ImGui::SameLine(0, 12);
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+        if (drive.isSolidState.has_value())
+        {
+            ImGui::TextUnformatted(*drive.isSolidState ? "SSD" : "Pevný disk");
+        }
+        else
+        {
+            ImGui::TextUnformatted("typ neznámy");
+        }
+        ImGui::PopStyleColor();
+
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+            used > 0.9f ? NasakiColors::Danger() : NasakiColors::Accent());
+        ImGui::ProgressBar(used, ImVec2(-1.0f, 8.0f), "");
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, 6));
+    }
+
+    ImGui::Dummy(ImVec2(0, 10));
+    if (ImGui::Button(ICON_ROTATE "  Prepočítať", ImVec2(0, 38)))
+    {
+        m_optimizations.RefreshStorageAsync();
+    }
+    ImGui::SameLine(0, 12);
+    if (ImGui::Button("Čistenie disku (Windows)", ImVec2(0, 38)))
+    {
+        // The system caches need elevation and belong to Windows' own tool.
+        optim::StorageCleaner::OpenWindowsDiskCleanup();
+    }
+    ImGui::SameLine(0, 12);
+    if (ImGui::Button("Nastavenia úložiska", ImVec2(0, 38)))
+    {
+        optim::StorageCleaner::OpenStorageSettings();
+    }
+    ImGui::SameLine(0, 12);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10);
+    ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+    ImGui::TextUnformatted(m_optimizations.StorageBusy() ? "Počítam..." : "");
+    ImGui::PopStyleColor();
+
+    if (std::optional<optim::Service::Outcome> outcome = m_optimizations.LastOutcome())
+    {
+        if (outcome->action == "storage-clean")
+        {
+            ImGui::Dummy(ImVec2(0, 10));
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                outcome->success ? NasakiColors::Ok() : NasakiColors::Danger());
+            ImGui::TextWrapped("%s", outcome->message.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+    ImGui::Dummy(ImVec2(0, 16));
+
+    std::vector<optim::CleanupTarget> targets = m_optimizations.StorageTargets();
+    optim::Service::StoragePreview preview = m_optimizations.CurrentStoragePreview();
+
+    if (targets.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::TextUnformatted(m_optimizations.StorageBusy()
+            ? "Prehľadávam priečinky..."
+            : "Stlač Prepočítať a pozrieme sa, kde je miesto.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    for (size_t i = 0; i < targets.size(); i++)
+    {
+        const optim::CleanupTarget& target = targets[i];
+        bool showingPreview = preview.targetId == target.id && !preview.lines.empty();
+
+        ImGui::PushID((int)i);
+        ImGui::BeginChild("target", ImVec2(0, showingPreview ? 320.0f : 150.0f), true);
+
+        ImGui::PushFont(NasakiFonts::Heading());
+        ImGui::TextUnformatted(target.name.c_str());
+        ImGui::PopFont();
+
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::TextWrapped("%s", target.description.c_str());
+        ImGui::PopStyleColor();
+
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+        if (target.deletable)
+        {
+            ImGui::Text("%s zaberá  •  %s sa dá uvoľniť (%d súborov)  •  %s",
+                optim::FormatBytes(target.bytes).c_str(),
+                optim::FormatBytes(target.deletableBytes).c_str(),
+                target.deletableFileCount,
+                target.path.c_str());
+        }
+        else
+        {
+            ImGui::Text("%s v %d súboroch  •  %s", optim::FormatBytes(target.bytes).c_str(),
+                target.fileCount, target.path.c_str());
+        }
+        ImGui::PopStyleColor();
+
+        if (!target.caution.empty())
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::Warn());
+            ImGui::TextWrapped(ICON_WARNING "  %s", target.caution.c_str());
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::Dummy(ImVec2(0, 6));
+
+        if (!target.deletable)
+        {
+            // Measured only. No button, because there is no action we would
+            // take on a personal folder.
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::TextUnformatted("Nasaki tu nemaže nič — otvor si priečinok a rozhodni sám.");
+            ImGui::PopStyleColor();
+        }
+        else if (target.deletableFileCount == 0 && target.deletableBytes == 0)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::TextUnformatted("Nie je čo uvoľniť.");
+            ImGui::PopStyleColor();
+        }
+        else if (!showingPreview)
+        {
+            if (ImGui::Button("Ukázať, čo sa zmaže", ImVec2(220.0f, 34.0f)))
+            {
+                m_optimizations.RequestStoragePreviewAsync(target.id);
+            }
+        }
+        else
+        {
+            // Delete is only reachable after the list has been shown for
+            // this specific target.
+            ImGui::BeginChild("preview", ImVec2(0, 150.0f), true);
+            for (const std::string& line : preview.lines)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+                ImGui::TextUnformatted(line.c_str());
+                ImGui::PopStyleColor();
+            }
+            if (preview.truncated)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+                ImGui::TextUnformatted("... a ďalšie. Zoznam je skrátený, zmaže sa všetko uvedené vyššie aj zvyšok.");
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndChild();
+
+            ImGui::Dummy(ImVec2(0, 6));
+            if (ImGui::Button("Áno, vymazať", ImVec2(180.0f, 34.0f)))
+            {
+                m_optimizations.CleanStorageAsync(target.id);
+            }
+            ImGui::SameLine(0, 10);
+            if (ImGui::Button("Zrušiť", ImVec2(120.0f, 34.0f)))
+            {
+                m_optimizations.ClearStoragePreview();
+            }
+        }
+
+        ImGui::EndChild();
+        ImGui::PopID();
+        ImGui::Dummy(ImVec2(0, 10));
+    }
 }
 
 void App::DrawGamesView()

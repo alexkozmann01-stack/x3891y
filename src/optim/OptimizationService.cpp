@@ -2,7 +2,7 @@
 
 namespace optim
 {
-    Service::Service(ApiWorker* worker) : m_worker(worker), m_startup(&m_backups), m_power(&m_backups)
+    Service::Service(ApiWorker* worker) : m_worker(worker), m_startup(&m_backups), m_power(&m_backups), m_storage(&m_backups)
     {
         // Read the machine before building the catalog — the inventory is
         // what decides which entries are recommended here, so it cannot be
@@ -295,6 +295,89 @@ namespace optim
             m_lastOutcome = Outcome{ "power.active_plan", "power-restore", error.ok(),
                 error.ok() ? "Pôvodný plán napájania obnovený." : error.message };
             m_powerBusy.store(false);
+        });
+    }
+
+    void Service::RefreshStorageAsync()
+    {
+        if (m_storageBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this]() {
+            std::vector<CleanupTarget> targets = m_storage.Analyze(m_inventory);
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_storageTargets = std::move(targets);
+            }
+            m_storageBusy.store(false);
+        });
+    }
+
+    std::vector<CleanupTarget> Service::StorageTargets() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_storageTargets;
+    }
+
+    void Service::RequestStoragePreviewAsync(const std::string& targetId)
+    {
+        if (m_storageBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this, targetId]() {
+            bool truncated = false;
+            std::vector<std::string> lines = m_storage.Preview(targetId, 200, &truncated);
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_storagePreview.targetId = targetId;
+            m_storagePreview.lines = std::move(lines);
+            m_storagePreview.truncated = truncated;
+            m_storageBusy.store(false);
+        });
+    }
+
+    Service::StoragePreview Service::CurrentStoragePreview() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_storagePreview;
+    }
+
+    void Service::ClearStoragePreview()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_storagePreview = StoragePreview{};
+    }
+
+    void Service::CleanStorageAsync(const std::string& targetId)
+    {
+        if (m_storageBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this, targetId]() {
+            CleanupResult cleanup;
+            Error error = m_storage.Clean(targetId, &cleanup);
+            std::vector<CleanupTarget> targets = m_storage.Analyze(m_inventory);
+
+            std::string message;
+            if (error.ok())
+            {
+                message = "Uvoľnené " + FormatBytes(cleanup.bytesFreed) + " (" +
+                          std::to_string(cleanup.filesDeleted) + " položiek).";
+                if (cleanup.filesSkipped > 0)
+                {
+                    // Skipped files are part of the result, not an omission:
+                    // reporting only the successes would overstate the work.
+                    message += " " + std::to_string(cleanup.filesSkipped) +
+                               " súborov sa práve používa, tie sme nechali tak.";
+                }
+            }
+            else
+            {
+                message = error.message;
+            }
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_storageTargets = std::move(targets);
+            m_storagePreview = StoragePreview{};
+            m_lastOutcome = Outcome{ targetId, "storage-clean", error.ok(), message };
+            m_storageBusy.store(false);
         });
     }
 

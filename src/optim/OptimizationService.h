@@ -5,6 +5,7 @@
 #include "BackupStore.h"
 #include "StartupEntries.h"
 #include "PowerPlans.h"
+#include "StorageCleanup.h"
 #include "../ApiWorker.h"
 
 #include <memory>
@@ -82,6 +83,27 @@ namespace optim
         void ActivatePowerPlanAsync(const std::string& guid);
         void RestorePowerPlanAsync();
 
+        // ---- storage -----------------------------------------------------
+
+        void RefreshStorageAsync();
+        std::vector<CleanupTarget> StorageTargets() const;
+        bool StorageBusy() const { return m_storageBusy.load(); }
+
+        // The exact file list a clean would remove. Deleting is only offered
+        // once this has been produced for that target, so nothing is ever
+        // removed sight unseen.
+        struct StoragePreview
+        {
+            std::string targetId;
+            std::vector<std::string> lines;
+            bool truncated = false;
+        };
+        void RequestStoragePreviewAsync(const std::string& targetId);
+        StoragePreview CurrentStoragePreview() const;
+        void ClearStoragePreview();
+
+        void CleanStorageAsync(const std::string& targetId);
+
         // Last operation's outcome, for the inline status line.
         struct Outcome
         {
@@ -107,6 +129,11 @@ namespace optim
         PowerPlanManager m_power;
         std::vector<PowerPlan> m_powerPlans;
         std::atomic<bool> m_powerBusy{ false };
+
+        StorageCleaner m_storage;
+        std::vector<CleanupTarget> m_storageTargets;
+        StoragePreview m_storagePreview;
+        std::atomic<bool> m_storageBusy{ false };
 
         mutable std::mutex m_mutex;
         std::vector<Status> m_states;     // parallel to m_catalog
