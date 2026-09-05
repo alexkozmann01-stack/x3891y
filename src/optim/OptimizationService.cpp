@@ -2,7 +2,7 @@
 
 namespace optim
 {
-    Service::Service(ApiWorker* worker) : m_worker(worker), m_startup(&m_backups)
+    Service::Service(ApiWorker* worker) : m_worker(worker), m_startup(&m_backups), m_power(&m_backups)
     {
         // Read the machine before building the catalog — the inventory is
         // what decides which entries are recommended here, so it cannot be
@@ -242,6 +242,59 @@ namespace optim
             m_lastOutcome = Outcome{ entryId, "startup-restore", error.ok(),
                 error.ok() ? "Vrátené do spúšťania v pôvodnom znení." : error.message };
             m_startupBusy.store(false);
+        });
+    }
+
+    void Service::RefreshPowerPlansAsync()
+    {
+        if (m_powerBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this]() {
+            std::vector<PowerPlan> plans = m_power.Enumerate();
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_powerPlans = std::move(plans);
+            }
+            m_powerBusy.store(false);
+        });
+    }
+
+    std::vector<PowerPlan> Service::PowerPlans() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_powerPlans;
+    }
+
+    void Service::ActivatePowerPlanAsync(const std::string& guid)
+    {
+        if (m_powerBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this, guid]() {
+            Error error = m_power.Activate(guid);
+            std::vector<PowerPlan> plans = m_power.Enumerate();
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_powerPlans = std::move(plans);
+            m_lastOutcome = Outcome{ guid, "power-activate", error.ok(),
+                error.ok() ? "Plán napájania prepnutý a overený."
+                           : error.message };
+            m_powerBusy.store(false);
+        });
+    }
+
+    void Service::RestorePowerPlanAsync()
+    {
+        if (m_powerBusy.exchange(true)) return;
+
+        m_worker->Enqueue([this]() {
+            Error error = m_power.RestoreOriginal();
+            std::vector<PowerPlan> plans = m_power.Enumerate();
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_powerPlans = std::move(plans);
+            m_lastOutcome = Outcome{ "power.active_plan", "power-restore", error.ok(),
+                error.ok() ? "Pôvodný plán napájania obnovený." : error.message };
+            m_powerBusy.store(false);
         });
     }
 

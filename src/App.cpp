@@ -10,6 +10,7 @@
 #include "imgui.h"
 
 #include <windows.h>
+#include <shellapi.h> // ShellExecuteW for the ms-settings deep links
 #include <intrin.h>
 #include <dxgi.h>
 #include <ctime>
@@ -129,6 +130,7 @@ App::App(HWND hwnd) : m_hwnd(hwnd), m_optimizations(&m_worker)
     }
     m_optimizations.RefreshAsync();
     m_optimizations.RefreshStartupAsync();
+    m_optimizations.RefreshPowerPlansAsync();
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +536,7 @@ void App::Draw()
             case AppView::Performance: DrawPerformanceView();break;
             case AppView::Optimizations: DrawOptimizationsView(); break;
             case AppView::Startup:     DrawStartupView();     break;
+            case AppView::Power:       DrawPowerView();       break;
             case AppView::Games:       DrawGamesView();       break;
             case AppView::Settings:    DrawSettingsView();    break;
             default: break;
@@ -610,6 +613,7 @@ void App::DrawSidebar()
 
     navItem("nav_opt", "Optimalizácie", ICON_BOLT, AppView::Optimizations);
     navItem("nav_startup", "Po spustení", ICON_LAYERS, AppView::Startup);
+    navItem("nav_power", "Napájanie", ICON_POWER, AppView::Power);
 
     ImGui::Dummy(ImVec2(0, 14));
     NasakiUI::SectionLabel("KNIŽNICA");
@@ -1254,6 +1258,145 @@ void App::DrawStartupView()
     // moves above extending the window.
     ImGui::SetCursorPos(origin);
     ImGui::Dummy(ImVec2(width, entries.size() * (rowHeight + 8.0f)));
+}
+
+void App::DrawPowerView()
+{
+    DrawPageTitle("Napájanie",
+        "Plány napájania Windows. Prepíname celé plány — jednotlivé parametre procesora "
+        "nechávame na systéme.");
+    ImGui::Dummy(ImVec2(0, 18));
+
+    // Guidance comes from the detected machine: the same plan is sensible
+    // advice on a desktop and a bad idea on a laptop running on battery.
+    std::string guidance = m_optimizations.PowerGuidance();
+    if (!guidance.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text,
+            m_isLaptop ? NasakiColors::Warn() : NasakiColors::InkDim());
+        ImGui::TextWrapped(ICON_THERMO "  %s", guidance.c_str());
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, 14));
+    }
+
+    if (ImGui::Button(ICON_ROTATE "  Znova načítať", ImVec2(0, 38)))
+    {
+        m_optimizations.RefreshPowerPlansAsync();
+    }
+    if (m_optimizations.HasOriginalPowerPlan())
+    {
+        ImGui::SameLine(0, 12);
+        std::string label = "Vrátiť pôvodný (" + m_optimizations.OriginalPowerPlanName() + ")";
+        if (ImGui::Button(label.c_str(), ImVec2(0, 38)))
+        {
+            m_optimizations.RestorePowerPlanAsync();
+        }
+    }
+    ImGui::SameLine(0, 12);
+    if (ImGui::Button("Otvoriť nastavenia napájania", ImVec2(0, 38)))
+    {
+        ShellExecuteW(nullptr, L"open", L"ms-settings:powersleep", nullptr, nullptr, SW_SHOWNORMAL);
+    }
+
+    if (std::optional<optim::Service::Outcome> outcome = m_optimizations.LastOutcome())
+    {
+        if (outcome->action.rfind("power-", 0) == 0)
+        {
+            ImGui::Dummy(ImVec2(0, 10));
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                outcome->success ? NasakiColors::Ok() : NasakiColors::Danger());
+            ImGui::TextWrapped("%s", outcome->message.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+    ImGui::Dummy(ImVec2(0, 16));
+
+    std::vector<optim::PowerPlan> plans = m_optimizations.PowerPlans();
+    if (plans.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkDim());
+        ImGui::TextWrapped("%s", m_optimizations.PowerBusy()
+            ? "Načítavam plány napájania..."
+            : "Windows nevrátil žiadne plány napájania. Na zariadeniach s Moderným pohotovostným "
+              "režimom môže byť zoznam prázdny a režim sa nastavuje priamo v Nastaveniach.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float pad = 18.0f;
+    ImVec2 origin = ImGui::GetCursorPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float y = 0.0f;
+
+    for (size_t i = 0; i < plans.size(); i++)
+    {
+        const optim::PowerPlan& plan = plans[i];
+        const float height = plan.note.empty() ? 78.0f : 100.0f;
+
+        float t = (m_viewFade - (float)i * 0.04f) / 0.35f;
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+
+        ImGui::SetCursorPos(ImVec2(origin.x, origin.y + y + (1.0f - t) * 8.0f));
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImVec2 p1(p0.x + width, p0.y + height);
+
+        ImGui::PushID((int)i);
+        ImGui::InvisibleButton("plan", ImVec2(width, height));
+        bool hovered = ImGui::IsItemHovered();
+        ImVec2 after = ImGui::GetCursorPos();
+
+        dl->AddRectFilled(p0, p1, ImGui::GetColorU32(
+            hovered ? IM_COL32(27, 23, 44, 255) : IM_COL32(20, 17, 34, 255)), 12.0f);
+        dl->AddRect(p0, p1, ImGui::GetColorU32(
+            plan.active ? IM_COL32(139, 92, 246, 170) : IM_COL32(42, 36, 64, 255)), 12.0f, 0, 1.0f);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * t);
+
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + 14.0f));
+        ImGui::PushFont(NasakiFonts::Heading());
+        ImGui::TextUnformatted(plan.name.c_str());
+        ImGui::PopFont();
+
+        if (plan.active)
+        {
+            ImVec2 size = ImGui::CalcTextSize("Aktívny");
+            NasakiUI::BadgeAt(dl, ImVec2(p1.x - pad - (size.x + 18.0f), p0.y + 16.0f), "Aktívny",
+                ImGui::GetColorU32(IM_COL32(167, 139, 250, 255)),
+                ImGui::GetColorU32(IM_COL32(139, 92, 246, 40)));
+        }
+
+        // The note is ours and only exists for the plans Windows ships; the
+        // description is whatever Windows itself reports.
+        const std::string& line = plan.note.empty() ? plan.description : plan.note;
+        if (!line.empty())
+        {
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, p0.y + 42.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, NasakiColors::InkFaint());
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width - pad * 2 - 170.0f);
+            ImGui::TextUnformatted(line.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        }
+
+        if (!plan.active)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(p1.x - pad - 150.0f, p1.y - pad - 26.0f));
+            if (ImGui::Button("Aktivovať", ImVec2(150.0f, 34.0f)))
+            {
+                m_optimizations.ActivatePowerPlanAsync(plan.guid);
+            }
+        }
+
+        ImGui::PopStyleVar();
+        ImGui::PopID();
+        ImGui::SetCursorPos(after);
+        y += height + 8.0f;
+    }
+
+    ImGui::SetCursorPos(origin);
+    ImGui::Dummy(ImVec2(width, y));
 }
 
 void App::DrawGamesView()

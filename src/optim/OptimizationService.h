@@ -4,6 +4,7 @@
 #include "Catalog.h"
 #include "BackupStore.h"
 #include "StartupEntries.h"
+#include "PowerPlans.h"
 #include "../ApiWorker.h"
 
 #include <memory>
@@ -69,6 +70,18 @@ namespace optim
         void RemoveStartupAsync(const std::string& entryId);
         void RestoreStartupAsync(const std::string& entryId);
 
+        // ---- power plans -------------------------------------------------
+
+        void RefreshPowerPlansAsync();
+        std::vector<PowerPlan> PowerPlans() const;
+        bool PowerBusy() const { return m_powerBusy.load(); }
+        bool HasOriginalPowerPlan() const { return m_power.HasOriginal(); }
+        std::string OriginalPowerPlanName() const { return m_power.OriginalPlanName(); }
+        std::string PowerGuidance() const { return PowerPlanManager::GuidanceFor(m_inventory); }
+
+        void ActivatePowerPlanAsync(const std::string& guid);
+        void RestorePowerPlanAsync();
+
         // Last operation's outcome, for the inline status line.
         struct Outcome
         {
@@ -90,6 +103,10 @@ namespace optim
 
         std::vector<StartupEntry> m_startupEntries;
         std::atomic<bool> m_startupBusy{ false };
+
+        PowerPlanManager m_power;
+        std::vector<PowerPlan> m_powerPlans;
+        std::atomic<bool> m_powerBusy{ false };
 
         mutable std::mutex m_mutex;
         std::vector<Status> m_states;     // parallel to m_catalog
